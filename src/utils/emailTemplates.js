@@ -77,3 +77,29 @@ export function getPasswordResetSuccessEmail(adminName = 'Admin') {
         </html>
     `;
 }
+
+
+// utils/emailTemplates.js (Add these templates)
+export function getWelcomeEmail(name, verificationUrl) {
+  return `
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <style>
+            body { font-family: Arial, sans-serif; line-height: 1.6; }
+            .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+            .button { background: #007bff; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <h2>Welcome to Our Platform, ${name}!</h2>
+            <p>Thank you for registering. Please verify your email address to get started.</p>
+            <a href="${verificationUrl}" class="button">Verify Email</a>
+            <p>If the button doesn't work, copy and paste this link in your browser:</p>
+            <p>${verificationUrl}</p>
+        </div>
+    </body>
+    </html>
+  `;
+}

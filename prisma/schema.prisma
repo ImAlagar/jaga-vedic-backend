@@ -16,11 +16,98 @@ model Admin {
   resetToken       String?  @unique
   resetTokenExpiry DateTime?
   createdAt        DateTime @default(now())
-  
+
   @@map("admins")
+}
+
+model User {
+  id               Int       @id @default(autoincrement())
+  name             String
+  email            String    @unique
+  password         String
+  phone            String?
+  address          String?
+  stripeCustomerId String?   @unique
+  isActive         Boolean   @default(true)
+  emailVerified    Boolean   @default(false)
+  verificationToken String?  @unique
+  resetToken       String?   @unique
+  resetTokenExpiry DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  orders           Order[]
+  
+  @@map("users")
+}
+
+model Product {
+  id          Int       @id @default(autoincrement())
+  name        String
+  description String
+  price       Float
+  images      String[]
+  printifyProductId String? @unique
+  printifyVariantId String?
+  sku         String?
+  category    String?
+  inStock     Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  orders      OrderItem[]
+  
+  @@map("products")
+}
+
+model Order {
+  id              Int         @id @default(autoincrement())
+  userId          Int
+  totalAmount     Float
+  paymentStatus   PaymentStatus @default(PENDING)
+  fulfillmentStatus FulfillmentStatus @default(PLACED)
+  stripePaymentIntentId String? @unique
+  stripeSessionId String? @unique
+  shippingAddress Json?
+  createdAt       DateTime    @default(now())
+
+  user    User       @relation(fields: [userId], references: [id])
+  items   OrderItem[]
+
+  @@map("orders")
+}
+
+model OrderItem {
+  id        Int     @id @default(autoincrement())
+  orderId   Int
+  productId Int
+  quantity  Int
+  price     Float
+  printifyBlueprintId Int?
+  printifyPrintProviderId Int?
+
+  order   Order   @relation(fields: [orderId], references: [id])
+  product Product @relation(fields: [productId], references: [id])
+
+  @@map("order_items")
 }
 
 enum Role {
   ADMIN
   SUPER_ADMIN
+}
+
+enum PaymentStatus {
+  PENDING
+  SUCCEEDED
+  FAILED
+  REFUNDED
+}
+
+enum FulfillmentStatus {
+  PLACED
+  PROCESSING
+  SHIPPED
+  DELIVERED
+  CANCELLED
 }

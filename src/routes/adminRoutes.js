@@ -4,6 +4,7 @@ import { validateRequest } from "../middlewares/validateRequest.js";
 import { loginValidator, registerValidator, resetValidator } from "../validators/adminValidator.js";
 import { verifyAdminToken } from "../middlewares/authToken.js";
 
+
 const router = express.Router();
 
 router.post("/register", registerValidator, validateRequest, register);
