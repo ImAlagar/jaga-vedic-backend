@@ -67,6 +67,9 @@ web_modules/
 
 # dotenv environment variable files
 .env
+.env.test
+.env.staging
+.env.production
 .env.*
 !.env.example
 
@@ -137,3 +140,7 @@ dist
 # Vite logs files
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
+
+/generated/prisma
+
+/src/generated/prisma
