@@ -17,26 +17,29 @@ export function successResponse(res, data = null, message = "Operation completed
 }
 
 export function errorResponse(res, error, status = HttpStatus.BAD_REQUEST) {
-    // Log error for server-side monitoring
     console.error('API Error:', {
         message: error.message,
         stack: error.stack,
         timestamp: new Date().toISOString()
     });
-    
+
+    let message = error.message || error;
+
+    // Only hide internal errors in production
+    if (process.env.NODE_ENV === 'production' && !message.startsWith("Registration failed")) {
+        message = "An unexpected error occurred. Please try again later.";
+    }
+
     const response = {
         success: false,
-        message: process.env.NODE_ENV === 'production' 
-            ? 'An unexpected error occurred. Please try again later.' 
-            : error.message || error,
+        message,
         timestamp: new Date().toISOString(),
         status
     };
-    
-    // Include validation errors if available
+
     if (error.errors) {
         response.errors = error.errors;
     }
-    
+
     return res.status(status).json(response);
 }
