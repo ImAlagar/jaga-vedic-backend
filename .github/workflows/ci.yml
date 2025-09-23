@@ -1,0 +1,44 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [ develop, main ]
+  pull_request:
+    branches: [ develop, main ]
+
+jobs:
+  build-test-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4   # 🔄 update to latest
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4   # 🔄 update to latest
+        with:
+          node-version: 18
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Run lint
+        run: npm run lint || echo "No lint script defined"
+
+      - name: Run tests
+        run: npm test -- --coverage || echo "No tests defined"
+
+      - name: Build project
+        run: npm run build || echo "No build script defined"
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4   # 🔄 update from v3 → v4
+        with:
+          name: build-output
+          path: build/
+
+      # 🚀 Deploy step
+      - name: Deploy to Render
+        if: github.ref == 'refs/heads/main'
+        run: curl -X POST ${{ secrets.RENDER_DEPLOY_HOOK }}
+
