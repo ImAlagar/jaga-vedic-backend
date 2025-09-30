@@ -67,16 +67,16 @@ export async function loginUser(email, password) {
     const user = await userModel.findUserByEmail(email.toLowerCase());
     
     if (!user) {
-      throw new Error("Invalid credentials");
+      throw new Error("No account found with this email address. Please check your email or sign up.");
     }
 
     if (!user.isActive) {
-      throw new Error("Your account has been deactivated. Please contact support.");
+      throw new Error("Account temporarily unavailable. Please contact our support team to reactivate your account.");
     }
 
     const validPassword = await bcrypt.compare(password, user.password);
     if (!validPassword) {
-      throw new Error("Invalid credentials");
+      throw new Error("The password you entered is incorrect. Please try again or reset your password.");
     }
 
     const token = jwt.sign(
@@ -101,7 +101,7 @@ export async function loginUser(email, password) {
       }
     };
   } catch (error) {
-    throw new Error(`Login failed: ${error.message}`);
+    throw new Error(`${error.message}`);
   }
 }
 

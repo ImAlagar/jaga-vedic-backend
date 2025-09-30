@@ -1,3 +1,4 @@
+// schema.prisma
 generator client {
   provider = "prisma-client-js"
 }
@@ -42,6 +43,7 @@ model User {
   updatedAt         DateTime  @updatedAt
 
   orders            Order[]
+  couponUsages      CouponUsage[]
 
   @@map("users")
 }
@@ -72,6 +74,7 @@ model Product {
 
   @@map("products")
 }
+
 //
 // 🔹 Order Table
 //
@@ -91,9 +94,16 @@ model Order {
   orderImage          String?          // Custom design image
   orderNotes          String?          // Special instructions
   
+  // 🔥 NEW: Coupon fields
+  couponCode      String?
+  discountAmount  Float?   @default(0)
+  subtotalAmount  Float    // Amount before discount
+  couponId        Int?
+  
   // Relations
   user    User       @relation(fields: [userId], references: [id], onDelete: Cascade)
   items   OrderItem[]
+  couponUsage CouponUsage?
 
   @@map("orders")
 }
@@ -123,38 +133,57 @@ model OrderItem {
 }
 
 //
-// 🔹 Enums
+// 🔹 NEW: Coupon Code Table
 //
-enum Role {
-  ADMIN
-  SUPER_ADMIN
+model Coupon {
+  id               Int       @id @default(autoincrement())
+  code             String    @unique
+  description      String?
+  discountType     DiscountType @default(PERCENTAGE)
+  discountValue    Float     // Percentage (10.0) or Fixed amount (15.00)
+  minOrderAmount   Float?    @default(0)
+  maxDiscountAmount Float?   // For percentage discounts only
+  usageLimit       Int?      // Total usage limit
+  usedCount        Int       @default(0)
+  validFrom        DateTime  @default(now())
+  validUntil       DateTime?
+  isActive         Boolean   @default(true)
+  isSingleUse      Boolean   @default(false) // One-time use per user
+  applicableTo     CouponApplicability @default(ALL_PRODUCTS)
+  categories       String[]  // For CATEGORY_SPECIFIC
+  products         Int[]     // For PRODUCT_SPECIFIC (product IDs)
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  // Relations
+  couponUsages CouponUsage[]
+
+  @@map("coupons")
 }
 
-enum PaymentStatus {
-  PENDING
-  SUCCEEDED
-  FAILED
-  REFUNDED
+//
+// 🔹 NEW: Coupon Usage Table (Track usage per user)
+//
+model CouponUsage {
+  id        Int      @id @default(autoincrement())
+  couponId  Int
+  userId    Int
+  orderId   Int
+  usedAt    DateTime @default(now())
+
+  // Relations
+  coupon Coupon @relation(fields: [couponId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  order  Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@unique([couponId, userId]) // For single-use per user
+  @@unique([orderId]) // One coupon per order
+  @@map("coupon_usages")
 }
 
-enum FulfillmentStatus {
-  PLACED
-  PROCESSING
-  SHIPPED 
-  DELIVERED
-  CANCELLED
-}
-
-
-// Add to your enums
-enum PaymentMethod {
-  CARD
-  PAYPAL
-  APPLE_PAY
-  GOOGLE_PAY
-}
-
-
+//
+// 🔹 Contact Inquiry Table
+//
 model ContactInquiry {
   id              Int       @id @default(autoincrement())
   name            String
@@ -171,28 +200,6 @@ model ContactInquiry {
 
   @@map("contact_inquiries")
 }
-
-enum InquiryType {
-  GENERAL
-  ORDER_SUPPORT
-  PRODUCT_QUESTION
-  SHIPPING
-  RETURNS
-  COMPLAINT
-  FEEDBACK
-  OTHER
-}
-
-enum InquiryStatus {
-  PENDING
-  IN_PROGRESS
-  RESOLVED
-  CLOSED
-  SPAM
-}
-
-
-// Add to your existing schema.prisma
 
 //
 // 🔹 Currency Table
@@ -219,8 +226,71 @@ model CurrencyUpdateLog {
   ratesCount  Int
   success     Boolean
   error       String?
-  source      String?  // 👈 ADD THIS FIELD
+  source      String?
   createdAt   DateTime @default(now())
 
   @@map("currency_update_logs")
+}
+
+//
+// 🔹 Enums
+//
+enum Role {
+  ADMIN
+  SUPER_ADMIN
+}
+
+enum PaymentStatus {
+  PENDING
+  SUCCEEDED
+  FAILED
+  REFUNDED
+}
+
+enum FulfillmentStatus {
+  PLACED
+  PROCESSING
+  SHIPPED 
+  DELIVERED
+  CANCELLED
+}
+
+enum PaymentMethod {
+  CARD
+  PAYPAL
+  APPLE_PAY
+  GOOGLE_PAY
+}
+
+enum InquiryType {
+  GENERAL
+  ORDER_SUPPORT
+  PRODUCT_QUESTION
+  SHIPPING
+  RETURNS
+  COMPLAINT
+  FEEDBACK
+  OTHER
+}
+
+enum InquiryStatus {
+  PENDING
+  IN_PROGRESS
+  RESOLVED
+  CLOSED
+  SPAM
+}
+
+//
+// 🔹 NEW: Coupon Enums
+//
+enum DiscountType {
+  PERCENTAGE
+  FIXED_AMOUNT
+}
+
+enum CouponApplicability {
+  ALL_PRODUCTS
+  CATEGORY_SPECIFIC
+  PRODUCT_SPECIFIC
 }
