@@ -7,6 +7,7 @@ import { sendMail } from "../utils/mailer.js";
 import { getWelcomeEmail, getPasswordResetEmail, getPasswordResetSuccessEmail } from "../utils/emailTemplates.js";
 
 
+// services/userService.js - OPTIMIZED
 export async function registerUser(name, email, password, phone, address) {
   try {
     // Validate email format
@@ -33,7 +34,7 @@ export async function registerUser(name, email, password, phone, address) {
     // Generate verification token
     const verificationToken = crypto.randomBytes(32).toString('hex');
 
-    // Save new user
+    // Save new user (this should be fast)
     const user = await userModel.createUser({
       name,
       email: email.toLowerCase(),
@@ -43,33 +44,35 @@ export async function registerUser(name, email, password, phone, address) {
       verificationToken
     });
 
-    // Send welcome email (wrap in try-catch to not block registration)
-    try {
-      const verificationUrl = `${process.env.CLIENT_URL}/verify-email?token=${verificationToken}`;
-      await sendMail(
-        email,
-        "Welcome to Our Platform - Verify Your Email",
-        getWelcomeEmail(name, verificationUrl)
-      );
-    } catch (emailError) {
-      console.error('Email sending failed:', emailError);
-      // Don't throw error - registration should still succeed
-    }
+    // Send email ASYNCHRONOUSLY - don't wait for it
+    setTimeout(async () => {
+      try {
+        const verificationUrl = `${process.env.CLIENT_URL}/verify-email?token=${verificationToken}`;
+        await sendMail(
+          email,
+          "Welcome to Our Platform - Verify Your Email",
+          getWelcomeEmail(name, verificationUrl)
+        );
+        console.log('Welcome email sent to:', email);
+      } catch (emailError) {
+        console.error('Email sending failed:', emailError);
+        // Don't affect registration
+      }
+    }, 0);
 
+    // Return success immediately without waiting for email
     return { 
       success: true,
       id: user.id, 
       name: user.name, 
       email: user.email, 
       phone: user.phone,
-      message: "Registration successful! Please check your email for verification instructions." 
+      message: "Registration successful! You will receive a verification email shortly." 
     };
   } catch (error) {
-    // Don't wrap the error - throw it as is to preserve the specific message
     throw error;
   }
 }
-
 
 export async function loginUser(email, password) {
   try {
