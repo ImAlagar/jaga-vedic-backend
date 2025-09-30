@@ -5,8 +5,8 @@ import { successResponse, errorResponse } from "../utils/responseHandler.js";
 
 export async function register(req, res) {
   try {
-    const { name, email, password, phone, address } = req.body;
-    const result = await userService.registerUser(name, email, password, phone, address);
+    const { name, email, password } = req.body;
+    const result = await userService.registerUser(name, email, password);
     
     return successResponse(
       res, 
