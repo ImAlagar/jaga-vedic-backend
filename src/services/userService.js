@@ -6,24 +6,25 @@ import crypto from "crypto";
 import { sendMail } from "../utils/mailer.js";
 import { getWelcomeEmail, getPasswordResetEmail, getPasswordResetSuccessEmail } from "../utils/emailTemplates.js";
 
+
 export async function registerUser(name, email, password, phone, address) {
   try {
     // Validate email format
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(email)) {
-      throw new Error("Invalid email format");
+      throw new Error("Please enter a valid email address");
     }
 
     // Check if user already exists
     const existingUser = await userModel.findUserByEmail(email);
     if (existingUser) {
-      throw new Error("User with this email already exists");
+      throw new Error("An account with this email already exists. Please try logging in or use a different email.");
     }
 
     // Validate password strength
     const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/;
     if (!passwordRegex.test(password)) {
-      throw new Error("Password must be at least 8 characters with uppercase, lowercase, number, and special character");
+      throw new Error("Password must be at least 8 characters and include uppercase, lowercase, number, and special character");
     }
 
     // Hash password
@@ -42,25 +43,33 @@ export async function registerUser(name, email, password, phone, address) {
       verificationToken
     });
 
-    // Send welcome email with verification link
-    const verificationUrl = `${process.env.CLIENT_URL}/verify-email?token=${verificationToken}`;
-    await sendMail(
-      email,
-      "Welcome to Our Platform - Verify Your Email",
-      getWelcomeEmail(name, verificationUrl)
-    );
+    // Send welcome email (wrap in try-catch to not block registration)
+    try {
+      const verificationUrl = `${process.env.CLIENT_URL}/verify-email?token=${verificationToken}`;
+      await sendMail(
+        email,
+        "Welcome to Our Platform - Verify Your Email",
+        getWelcomeEmail(name, verificationUrl)
+      );
+    } catch (emailError) {
+      console.error('Email sending failed:', emailError);
+      // Don't throw error - registration should still succeed
+    }
 
     return { 
+      success: true,
       id: user.id, 
       name: user.name, 
       email: user.email, 
       phone: user.phone,
-      message: "Registration successful. Please check your email for verification." 
+      message: "Registration successful! Please check your email for verification instructions." 
     };
   } catch (error) {
-    throw new Error(`Registration failed: ${error.message}`);
+    // Don't wrap the error - throw it as is to preserve the specific message
+    throw error;
   }
 }
+
 
 export async function loginUser(email, password) {
   try {

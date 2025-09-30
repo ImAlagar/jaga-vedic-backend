@@ -11,16 +11,15 @@ export async function register(req, res) {
     return successResponse(
       res, 
       result, 
-      "User registered successfully", 
+      result.message || "User registered successfully", 
       HttpStatus.CREATED
     );
   } catch (error) {
+    // Use the specific error message from userService
     return errorResponse(res, error, HttpStatus.BAD_REQUEST);
   }
 }
 
-// controllers/userController.js - CURRENT (WRONG)
-// controllers/userController.js - FIXED
 export async function login(req, res) {
   try {
     const { email, password } = req.body;
