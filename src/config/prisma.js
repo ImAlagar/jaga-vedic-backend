@@ -1,13 +1,21 @@
 // src/config/prisma.js
 import { PrismaClient } from "@prisma/client";
+import dotenv from "dotenv";
 
-// Simplified environment loading for production
-if (process.env.NODE_ENV !== 'production') {
-  import('dotenv').then(dotenv => dotenv.config());
+// Load environment variables
+if (process.env.NODE_ENV === "test") {
+  dotenv.config({ path: ".env.test" });
+} else if (process.env.NODE_ENV === "staging") {
+  dotenv.config({ path: ".env.staging" });
+} else if (process.env.NODE_ENV === "production") {
+  dotenv.config({ path: ".env.production" });
+} else {
+  dotenv.config(); // default .env
 }
 
+// Create a singleton instance of PrismaClient with connection timeout
 const prisma = new PrismaClient({
-  log: process.env.NODE_ENV === "development" ? ["query", "error", "warn"] : ["error"],
+  log: process.env.NODE_ENV === "development" ? ["error", "warn"] : ["error"],
   datasources: {
     db: {
       url: process.env.DATABASE_URL,
@@ -15,26 +23,21 @@ const prisma = new PrismaClient({
   },
 });
 
+// Enhanced Prisma connection function with retries
 export async function connectDB() {
-  const maxRetries = 5;
-  const retryDelay = 3000;
+  const maxRetries = 3;
+  const retryDelay = 5000; // 5 seconds
 
   console.log('🔗 Attempting database connection...');
-  console.log('🏷️ Environment:', process.env.NODE_ENV);
   
-  // Better URL masking
-  const dbUrl = process.env.DATABASE_URL;
-  const maskedUrl = dbUrl ? dbUrl.replace(/\/\/[^:]+:[^@]+@/, '//***:***@') : 'not set';
-  console.log('📡 Database URL:', maskedUrl);
+  // Log masked connection URL for debugging (without password)
+  const maskedUrl = process.env.DATABASE_URL?.replace(/:\/\/[^:]+:[^@]+@/, '://***:***@');
+  console.log('📡 Connecting to:', maskedUrl);
 
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
       console.log(`🔄 Connection attempt ${attempt}/${maxRetries}`);
       await prisma.$connect();
-      
-      // Test connection with a simple query
-      await prisma.$queryRaw`SELECT 1`;
-      
       console.log("✅ Database connected successfully");
       return;
     } catch (error) {
@@ -42,12 +45,12 @@ export async function connectDB() {
       
       if (attempt === maxRetries) {
         console.error("💥 All connection attempts failed");
-        console.log("🔍 Detailed troubleshooting:");
-        console.log("   - Check Supabase project status");
-        console.log("   - Verify DATABASE_URL in Render environment variables");
-        console.log("   - Check Supabase network settings");
-        console.log("   - Ensure database is not paused");
-        throw error; // Don't exit, let Render handle it
+        console.log("🔍 Troubleshooting tips:");
+        console.log("   1. Check DATABASE_URL format in .env file");
+        console.log("   2. Verify Supabase project is active");
+        console.log("   3. Check if your IP is whitelisted in Supabase");
+        console.log("   4. Ensure password is properly URL encoded");
+        process.exit(1);
       }
       
       console.log(`⏳ Retrying in ${retryDelay/1000} seconds...`);
@@ -62,6 +65,7 @@ export async function disconnectDB() {
     console.log("✅ Database disconnected successfully");
   } catch (error) {
     console.error("❌ Database disconnection failed:", error);
+    process.exit(1);
   }
 }
 
