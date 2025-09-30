@@ -23,16 +23,12 @@ export function errorResponse(res, error, status = HttpStatus.BAD_REQUEST) {
         timestamp: new Date().toISOString()
     });
 
-    let message = error.message || error;
-
-    // Only hide internal errors in production
-    if (process.env.NODE_ENV === 'production' && !message.startsWith("Registration failed")) {
-        message = "An unexpected error occurred. Please try again later.";
-    }
+    // ALWAYS return the specific error message
+    const message = error.message || error;
 
     const response = {
         success: false,
-        message,
+        message, // This will be "Invalid email or password" etc.
         timestamp: new Date().toISOString(),
         status
     };

@@ -19,6 +19,8 @@ export async function register(req, res) {
   }
 }
 
+// controllers/userController.js - CURRENT (WRONG)
+// controllers/userController.js - FIXED
 export async function login(req, res) {
   try {
     const { email, password } = req.body;
@@ -31,7 +33,12 @@ export async function login(req, res) {
       HttpStatus.OK
     );
   } catch (error) {
-    return errorResponse(res, error, HttpStatus.UNAUTHORIZED);
+    // Preserve the specific error messages from userService
+    const statusCode = error.message.includes('incorrect') || 
+                      error.message.includes('No account') ? 
+                      HttpStatus.UNAUTHORIZED : HttpStatus.BAD_REQUEST;
+    
+    return errorResponse(res, error, statusCode);
   }
 }
 

@@ -105,6 +105,8 @@ export async function loginUser(email, password) {
   }
 }
 
+
+
 export async function getUserProfile(userId) {
   try {
     const user = await userModel.findUserById(userId);
