@@ -12,10 +12,12 @@ export async function findUserByEmail(email) {
   }
 }
 
-export async function findUserById(id) {
+export async function findUserById(userId) {
   try {
-    return await prisma.user.findUnique({
-      where: { id: parseInt(id) },
+    const user = await prisma.user.findUnique({
+      where: {
+        id: parseInt(userId) // Make sure to parse the ID
+      },
       select: {
         id: true,
         name: true,
@@ -29,11 +31,11 @@ export async function findUserById(id) {
         stripeCustomerId: true
       }
     });
+    return user;
   } catch (error) {
-    console.error("Error finding user by ID:", error);
-    throw new Error("Database error occurred");
+    throw new Error(`Failed to find user by ID: ${error.message}`);
   }
-}
+} 
 
 export async function findUserByResetToken(token) {
   try {
@@ -138,5 +140,132 @@ export async function toggleUserStatus(userId, isActive) {
   } catch (error) {
     console.error("Error toggling user status:", error);
     throw new Error("Failed to update user status");
+  }
+}
+
+
+// models/userModel.js - Add this function
+export async function findUserByIdWithOrders(id) {
+  try {
+    return await prisma.user.findUnique({
+      where: { id: parseInt(id) },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        phone: true,
+        address: true,
+        isActive: true,
+        emailVerified: true,
+        createdAt: true,
+        updatedAt: true,
+        stripeCustomerId: true,
+        orders: {
+          include: {
+            items: {
+              include: {
+                product: {
+                  select: {
+                    id: true,
+                    name: true,
+                    price: true,
+                    images: true,
+                    printifyProductId: true
+                  }
+                }
+              }
+            }
+          },
+          orderBy: {
+            createdAt: 'desc'
+          }
+        }
+      }
+    });
+  } catch (error) {
+    console.error("Error finding user by ID with orders:", error);
+    throw new Error("Database error occurred");
+  }
+}
+
+// Add these functions to your userModel.js
+
+export async function getTotalUsersCount() {
+  try {
+    const count = await prisma.user.count();
+    return count;
+  } catch (error) {
+    throw new Error(`Failed to get total users count: ${error.message}`);
+  }
+}
+
+export async function getActiveUsersCount() {
+  try {
+    const count = await prisma.user.count({
+      where: { isActive: true }
+    });
+    return count;
+  } catch (error) {
+    throw new Error(`Failed to get active users count: ${error.message}`);
+  }
+}
+
+export async function getInactiveUsersCount() {
+  try {
+    const count = await prisma.user.count({
+      where: { isActive: false }
+    });
+    return count;
+  } catch ( error) {
+    throw new Error(`Failed to get inactive users count: ${error.message}`);
+  }
+}
+
+export async function getNewUsersThisMonth() {
+  try {
+    const startOfMonth = new Date();
+    startOfMonth.setDate(1);
+    startOfMonth.setHours(0, 0, 0, 0);
+    
+    const count = await prisma.user.count({
+      where: {
+        createdAt: {
+          gte: startOfMonth
+        }
+      }
+    });
+    return count;
+  } catch (error) {
+    throw new Error(`Failed to get new users this month: ${error.message}`);
+  }
+}
+
+export async function getTotalOrdersCount() {
+  try {
+    const count = await prisma.order.count();
+    return count;
+  } catch (error) {
+    // If orders table doesn't exist yet, return 0
+    return 0;
+  }
+}
+
+export async function getOrdersThisMonth() {
+  try {
+    const startOfMonth = new Date();
+    startOfMonth.setDate(1);
+    startOfMonth.setHours(0, 0, 0, 0);
+    
+    const count = await prisma.order.count({
+      where: {
+        createdAt: {
+          gte: startOfMonth
+        }
+      }
+    });
+    return count;
+  } catch (error) {
+    // If orders table doesn't exist yet, return 0
+    return 0;
   }
 }

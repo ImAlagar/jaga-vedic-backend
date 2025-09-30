@@ -1,52 +1,35 @@
-// routes/productRoutes.js
+// src/routes/productRoutes.js
 import express from "express";
-import {
-  createProduct,
-  getProducts,
-  getProduct,
-  updateProduct,
-  deleteProduct,
-  toggleStock,
-  getCategories,
-  deleteImage
+import { 
+  syncProducts, 
+  getAllProducts, 
+  getProductById,
+    filterProducts,           // 👈 ADD THIS
+  getProductFilters,
+  getProductVariants  // Add this import
 } from "../controllers/productController.js";
-import {
-  createProductValidator,
-  updateProductValidator,
-  productQueryValidator
+import { 
+  productSyncValidator, 
+  productQueryValidator 
 } from "../validators/productValidator.js";
 import { validateRequest } from "../middlewares/validateRequest.js";
-import { verifyAdminToken } from "../middlewares/authToken.js";
-import { upload } from "../utils/cloudinary.js";
 
 const router = express.Router();
 
-// Public routes
-router.get("/", productQueryValidator, validateRequest, getProducts);
-router.get("/categories", getCategories);
-router.get("/:id", getProduct);
+// GET /products - Get all products with pagination and filters
+router.get("/", productQueryValidator, validateRequest, getAllProducts);
 
-// Admin protected routes
-router.post(
-  "/",
-  verifyAdminToken,
-  upload.array('images', 10),
-  createProductValidator,
-  validateRequest,
-  createProduct
-);
+// GET /products/:id - Get single product
+router.get("/:id", getProductById);
 
-router.put(
-  "/:id",
-  verifyAdminToken,
-  upload.array('images', 10),
-  updateProductValidator,
-  validateRequest,
-  updateProduct
-);
+// GET /products/:productId/variants - Get product variants
+router.get("/:productId/variants", getProductVariants); 
 
-router.delete("/:id", verifyAdminToken, deleteProduct);
-router.patch("/:id/stock", verifyAdminToken, toggleStock);
-router.delete("/:id/image", verifyAdminToken, deleteImage);
+// GET /products/sync/:shopId - Sync products from Printify
+router.get("/sync/:shopId", productSyncValidator, validateRequest, syncProducts);
+
+router.get("/filters", getProductFilters);        // 👈 ADD THIS
+router.get("/filter", filterProducts);   
+
 
 export default router;

@@ -38,7 +38,10 @@ export async function login(req, res) {
 export async function getProfile(req, res) {
   try {
     const userId = req.user.id;
-    const user = await userService.getUserProfile(userId);
+    const { includeOrders = 'false' } = req.query;
+    
+    const includeOrdersBool = includeOrders.toLowerCase() === 'true';
+    const user = await userService.getUserById(userId, includeOrdersBool);
     
     return successResponse(
       res, 
@@ -134,5 +137,41 @@ export async function toggleUserStatus(req, res) {
     );
   } catch (error) {
     return errorResponse(res, error, HttpStatus.BAD_REQUEST);
+  }
+}
+
+
+export async function getUserById(req, res) {
+  try {
+    const { userId } = req.params;
+    const { includeOrders = 'false' } = req.query; // Get query parameter
+    
+    const includeOrdersBool = includeOrders.toLowerCase() === 'true';
+    
+    const user = await userService.getUserById(userId, includeOrdersBool);
+    
+    return successResponse(
+      res, 
+      user, 
+      "User retrieved successfully", 
+      HttpStatus.OK
+    );
+  } catch (error) {
+    return errorResponse(res, error, HttpStatus.NOT_FOUND);
+  }
+}
+
+export async function getUserStats(req, res) {
+  try {
+    const stats = await userService.getUserStats();
+    
+    return successResponse(
+      res, 
+      stats, 
+      "User stats retrieved successfully", 
+      HttpStatus.OK
+    );
+  } catch (error) {
+    return errorResponse(res, error, HttpStatus.INTERNAL_SERVER_ERROR);
   }
 }

@@ -1,4 +1,3 @@
-// prisma/schema.prisma
 generator client {
   provider = "prisma-client-js"
 }
@@ -8,6 +7,9 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+//
+// 🔹 Admin Table
+//
 model Admin {
   id               Int      @id @default(autoincrement())
   email            String   @unique
@@ -20,78 +22,109 @@ model Admin {
   @@map("admins")
 }
 
+//
+// 🔹 User Table
+//
 model User {
-  id               Int       @id @default(autoincrement())
-  name             String
-  email            String    @unique
-  password         String
-  phone            String?
-  address          String?
-  stripeCustomerId String?   @unique
-  isActive         Boolean   @default(true)
-  emailVerified    Boolean   @default(false)
-  verificationToken String?  @unique
-  resetToken       String?   @unique
-  resetTokenExpiry DateTime?
-  createdAt        DateTime  @default(now())
-  updatedAt        DateTime  @updatedAt
+  id                Int       @id @default(autoincrement())
+  name              String
+  email             String    @unique
+  password          String
+  phone             String?
+  address           String?
+  stripeCustomerId  String?   @unique
+  isActive          Boolean   @default(true)
+  emailVerified     Boolean   @default(false)
+  verificationToken String?   @unique
+  resetToken        String?   @unique
+  resetTokenExpiry  DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
 
-  orders           Order[]
-  
+  orders            Order[]
+
   @@map("users")
 }
 
+//
+// 🔹 Product Table (Synced from Printify)
+//
 model Product {
-  id          Int       @id @default(autoincrement())
-  name        String
-  description String
-  price       Float
-  images      String[]
-  printifyProductId String? @unique
-  printifyVariantId String?
-  sku         String?
-  category    String?
-  inStock     Boolean   @default(true)
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
-
-  orders      OrderItem[]
+  id                Int       @id @default(autoincrement())
+  name              String
+  description       String
+  price             Float
+  images            String[]
+  printifyProductId String    @unique
+  sku               String?
+  category          String?
+  inStock           Boolean   @default(true)
   
+  // 🔥 NEW: Printify-specific fields
+  printifyVariants          Json?     // Store all variants as JSON array
+  printifyBlueprintId       Int?
+  printifyPrintProviderId   Int?
+  
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  orders            OrderItem[]
+
   @@map("products")
 }
-
+//
+// 🔹 Order Table
+//
 model Order {
-  id              Int         @id @default(autoincrement())
-  userId          Int
-  totalAmount     Float
-  paymentStatus   PaymentStatus @default(PENDING)
-  fulfillmentStatus FulfillmentStatus @default(PLACED)
-  stripePaymentIntentId String? @unique
-  stripeSessionId String? @unique
-  shippingAddress Json?
-  createdAt       DateTime    @default(now())
+  id                  Int              @id @default(autoincrement())
+  userId              Int
+  totalAmount         Float
+  paymentStatus       PaymentStatus    @default(PENDING)
+  fulfillmentStatus   FulfillmentStatus @default(PLACED)
+  stripePaymentIntentId String?        @unique
+  stripeSessionId     String?          @unique
+  shippingAddress     Json?
+  createdAt           DateTime         @default(now())  
 
-  user    User       @relation(fields: [userId], references: [id])
+  // 🔥 Printify integration fields
+  printifyOrderId     String?          @unique
+  orderImage          String?          // Custom design image
+  orderNotes          String?          // Special instructions
+  
+  // Relations
+  user    User       @relation(fields: [userId], references: [id], onDelete: Cascade)
   items   OrderItem[]
 
   @@map("orders")
 }
 
+//
+// 🔹 OrderItem Table (Updated)
+//
 model OrderItem {
-  id        Int     @id @default(autoincrement())
-  orderId   Int
-  productId Int
-  quantity  Int
-  price     Float
-  printifyBlueprintId Int?
-  printifyPrintProviderId Int?
+  id                  Int     @id @default(autoincrement())
+  orderId             Int
+  productId           Int
+  quantity            Int
+  price               Float
 
-  order   Order   @relation(fields: [orderId], references: [id])
+  // Printify specific fields
+  printifyVariantId       String?
+  printifyBlueprintId     Int?
+  printifyPrintProviderId Int?
+  size                 String?  // Added size field
+  color                String?  // Added color field
+
+  order   Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
   product Product @relation(fields: [productId], references: [id])
 
+  @@unique([orderId, productId, printifyVariantId])
   @@map("order_items")
 }
 
+//
+// 🔹 Enums
+//
 enum Role {
   ADMIN
   SUPER_ADMIN
@@ -107,7 +140,87 @@ enum PaymentStatus {
 enum FulfillmentStatus {
   PLACED
   PROCESSING
-  SHIPPED
+  SHIPPED 
   DELIVERED
   CANCELLED
+}
+
+
+// Add to your enums
+enum PaymentMethod {
+  CARD
+  PAYPAL
+  APPLE_PAY
+  GOOGLE_PAY
+}
+
+
+model ContactInquiry {
+  id              Int       @id @default(autoincrement())
+  name            String
+  email           String
+  phone           String?
+  subject         String
+  message         String
+  inquiryType     InquiryType @default(GENERAL)
+  status          InquiryStatus @default(PENDING)
+  callbackTime    DateTime?
+  adminNotes      String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@map("contact_inquiries")
+}
+
+enum InquiryType {
+  GENERAL
+  ORDER_SUPPORT
+  PRODUCT_QUESTION
+  SHIPPING
+  RETURNS
+  COMPLAINT
+  FEEDBACK
+  OTHER
+}
+
+enum InquiryStatus {
+  PENDING
+  IN_PROGRESS
+  RESOLVED
+  CLOSED
+  SPAM
+}
+
+
+// Add to your existing schema.prisma
+
+//
+// 🔹 Currency Table
+//
+model Currency {
+  code        String   @id
+  name        String
+  symbol      String
+  rate        Float    @default(1.0)
+  countryCodes String[] // Store as JSON array
+  locale      String   @default("en-US")
+  isActive    Boolean  @default(true)
+  lastUpdated DateTime @default(now())
+
+  @@map("currencies")
+}
+
+//
+// 🔹 Currency Update Log Table
+//
+model CurrencyUpdateLog {
+  id          Int      @id @default(autoincrement())
+  base        String   @default("USD")
+  ratesCount  Int
+  success     Boolean
+  error       String?
+  source      String?  // 👈 ADD THIS FIELD
+  createdAt   DateTime @default(now())
+
+  @@map("currency_update_logs")
 }

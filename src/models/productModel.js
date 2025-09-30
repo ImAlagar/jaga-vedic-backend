@@ -1,24 +1,51 @@
-// models/productModel.js
+// src/models/productModel.js
 import prisma from "../config/prisma.js";
+
+export async function upsertProduct(product) {
+  // Store variant information safely
+  const variants = product.variants ? product.variants.map(variant => ({
+    id: variant.id,
+    price: variant.price ? variant.price / 100 : 0,
+    sku: variant.sku || '',
+    isAvailable: variant.is_available !== undefined ? variant.is_available : true,
+    title: variant.title || `Variant ${variant.id}`
+  })) : [];
+
+  return await prisma.product.upsert({
+    where: { printifyProductId: product.id },
+    update: {
+      name: product.title,
+      description: product.description || '',
+      price: product.variants && product.variants[0]?.price ? product.variants[0].price / 100 : 0,
+      images: product.images ? product.images.map((img) => img.src) : [],
+      sku: product.variants && product.variants[0]?.sku,
+      category: product.tags && product.tags[0] ? product.tags[0] : 'general',
+      printifyVariants: variants,
+      printifyBlueprintId: product.blueprint_id || null,
+      printifyPrintProviderId: product.print_provider_id || null,
+      updatedAt: new Date(),
+    },
+    create: {
+      name: product.title,
+      description: product.description || '',
+      price: product.variants && product.variants[0]?.price ? product.variants[0].price / 100 : 0,
+      images: product.images ? product.images.map((img) => img.src) : [],
+      printifyProductId: product.id,
+      sku: product.variants && product.variants[0]?.sku,
+      category: product.tags && product.tags[0] ? product.tags[0] : 'general',
+      printifyVariants: variants,
+      printifyBlueprintId: product.blueprint_id || null,
+      printifyPrintProviderId: product.print_provider_id || null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    },
+  });
+}
 
 export async function findProductById(id) {
   try {
     return await prisma.product.findUnique({
-      where: { id: parseInt(id) },
-      include: {
-        orders: {
-          include: {
-            order: {
-              select: {
-                id: true,
-                paymentStatus: true,
-                fulfillmentStatus: true,
-                createdAt: true
-              }
-            }
-          }
-        }
-      }
+      where: { id: parseInt(id) }
     });
   } catch (error) {
     console.error("Error finding product by ID:", error);
@@ -43,12 +70,12 @@ export async function findAllProducts(page = 1, limit = 10, search = '', categor
     
     const whereClause = {
       AND: [
-        {
+        search ? {
           OR: [
             { name: { contains: search, mode: 'insensitive' } },
             { description: { contains: search, mode: 'insensitive' } }
           ]
-        },
+        } : {},
         category ? { category: { equals: category, mode: 'insensitive' } } : {},
         inStock !== null ? { inStock: inStock } : {}
       ].filter(condition => Object.keys(condition).length > 0)
@@ -57,17 +84,19 @@ export async function findAllProducts(page = 1, limit = 10, search = '', categor
     const [products, totalCount] = await Promise.all([
       prisma.product.findMany({
         where: whereClause,
-        include: {
-          orders: {
-            select: {
-              quantity: true,
-              order: {
-                select: {
-                  paymentStatus: true
-                }
-              }
-            }
-          }
+        select: {
+          id: true,
+          name: true,
+          description: true,
+          price: true,
+          images: true,
+          category: true,
+          inStock: true,
+          printifyProductId: true,
+          sku: true,
+          printifyVariants: true,
+          createdAt: true,
+          updatedAt: true
         },
         orderBy: { createdAt: 'desc' },
         skip,
@@ -76,24 +105,13 @@ export async function findAllProducts(page = 1, limit = 10, search = '', categor
       prisma.product.count({ where: whereClause })
     ]);
 
-    // Calculate sales data
-    const productsWithSales = products.map(product => {
-      const totalSold = product.orders
-        .filter(orderItem => orderItem.order.paymentStatus === 'SUCCEEDED')
-        .reduce((sum, orderItem) => sum + orderItem.quantity, 0);
-      
-      return {
-        ...product,
-        totalSold,
-        orders: undefined // Remove orders from response
-      };
-    });
-
     return {
-      products: productsWithSales,
+      products,
       totalCount,
       totalPages: Math.ceil(totalCount / limit),
-      currentPage: page
+      currentPage: page,
+      hasNext: page < Math.ceil(totalCount / limit),
+      hasPrev: page > 1
     };
   } catch (error) {
     console.error("Error finding all products:", error);
@@ -101,75 +119,4 @@ export async function findAllProducts(page = 1, limit = 10, search = '', categor
   }
 }
 
-export async function createProduct(data) {
-  try {
-    return await prisma.product.create({
-      data: {
-        ...data,
-        images: data.images || [] // Ensure images is always an array
-      }
-    });
-  } catch (error) {
-    console.error("Error creating product:", error);
-    throw new Error("Failed to create product");
-  }
-}
 
-export async function updateProduct(id, data) {
-  try {
-    return await prisma.product.update({
-      where: { id: parseInt(id) },
-      data: {
-        ...data,
-        updatedAt: new Date()
-      }
-    });
-  } catch (error) {
-    console.error("Error updating product:", error);
-    throw new Error("Failed to update product");
-  }
-}
-
-export async function deleteProduct(id) {
-  try {
-    return await prisma.product.delete({
-      where: { id: parseInt(id) }
-    });
-  } catch (error) {
-    console.error("Error deleting product:", error);
-    throw new Error("Failed to delete product");
-  }
-}
-
-export async function toggleProductStock(id, inStock) {
-  try {
-    return await prisma.product.update({
-      where: { id: parseInt(id) },
-      data: { inStock }
-    });
-  } catch (error) {
-    console.error("Error toggling product stock:", error);
-    throw new Error("Failed to update product stock status");
-  }
-}
-
-export async function getProductCategories() {
-  try {
-    const categories = await prisma.product.findMany({
-      where: {
-        category: {
-          not: null
-        }
-      },
-      select: {
-        category: true
-      },
-      distinct: ['category']
-    });
-    
-    return categories.map(cat => cat.category).filter(Boolean);
-  } catch (error) {
-    console.error("Error getting product categories:", error);
-    throw new Error("Failed to fetch product categories");
-  }
-}

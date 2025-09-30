@@ -92,15 +92,19 @@ export async function forgotPassword(email) {
       { resetToken: token, resetTokenExpiry: expiry }
     );
 
-    const resetUrl = `${process.env.CLIENT_URL}/reset-password?token=${token}`;
+    // Fix: Use the correct frontend route
+    const resetUrl = `${process.env.CLIENT_URL}/admin/reset-password?token=${token}`;
 
     await sendMail(
       email,
-      "Password Reset Request - Tech Buddyzz Admin",
+      "Password Reset Request - Agumiya Collections Admin",
       getPasswordResetEmail(resetUrl, admin.email.split('@')[0])
     );
 
-    return { message: "If the email exists, a password reset link has been sent" };
+    return { 
+      success: true,
+      message: "If the email exists, a password reset link has been sent" 
+    };
   } catch (error) {
     throw new Error(`Password reset request failed: ${error.message}`);
   }

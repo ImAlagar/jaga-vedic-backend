@@ -40,16 +40,17 @@ export function verifyAdminToken(req, res, next) {
 }
 
 
-// middlewares/authToken.js (Add this function)
 export function verifyUserToken(req, res, next) {
     try {
         const authHeader = req.headers.authorization;
         
         if (!authHeader || !authHeader.startsWith('Bearer ')) {
+
             return errorResponse(res, "Access token required", HttpStatus.UNAUTHORIZED);
         }
 
         const token = authHeader.split(' ')[1];
+        
         
         if (!token) {
             return errorResponse(res, "Invalid token format", HttpStatus.UNAUTHORIZED);

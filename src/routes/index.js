@@ -1,15 +1,28 @@
-// routes/index.js
+// src/routes/index.js
 import express from "express";
 import adminRoutes from "./adminRoutes.js";
 import userRoutes from "./userRoutes.js";
 import adminUserRoutes from "./adminUserRoutes.js";
 import productRoutes from "./productRoutes.js";
+import orderRoutes from "./orderRoutes.js";
+import debugRoutes from "./debugRoutes.js";
+import dashboardRoutes from "./dashboardRoutes.js";
+import contactRoutes from "./contactRoutes.js";
+import currencyRoutes from "./currencyRoutes.js"; // 👈 ADD THIS
+import searchRoutes from "./searchRoutes.js"; // 👈 ADD THIS
 
 const router = express.Router();
 
+// Register all routes with proper base paths
 router.use("/admin", adminRoutes);
 router.use("/admin", adminUserRoutes);
 router.use("/users", userRoutes);
-router.use("/products", productRoutes); // Add this line
+router.use("/products", productRoutes);
+router.use("/orders", orderRoutes);
+router.use("/debug", debugRoutes);
+router.use("/dashboard", dashboardRoutes);
+router.use("/contact", contactRoutes);
+router.use("/currency", currencyRoutes); // 👈 ADD THIS
+router.use("/search", searchRoutes); // 👈 ADD THIS
 
 export default router;

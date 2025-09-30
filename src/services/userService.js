@@ -235,3 +235,119 @@ export async function toggleUserActiveStatus(userId, isActive) {
     throw new Error(`Failed to update user status: ${error.message}`);
   }
 }
+
+
+export async function getUserById(userId, includeOrders = false) {
+  try {
+    let user;
+    
+    if (includeOrders) {
+      user = await userModel.findUserByIdWithOrders(userId);
+    } else {
+      user = await userModel.findUserById(userId);
+    }
+    
+    if (!user) {
+      throw new Error("User not found");
+    }
+    
+    // If including orders, format the order data
+    if (includeOrders && user.orders) {
+      const formattedUser = {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        phone: user.phone,
+        address: user.address,
+        isActive: user.isActive,
+        emailVerified: user.emailVerified,
+        createdAt: user.createdAt,
+        updatedAt: user.updatedAt,
+        orders: user.orders.map(order => ({
+          id: order.id,
+          totalAmount: order.totalAmount,
+          paymentStatus: order.paymentStatus,
+          fulfillmentStatus: order.fulfillmentStatus,
+          stripePaymentIntentId: order.stripePaymentIntentId,
+          printifyOrderId: order.printifyOrderId,
+          orderImage: order.orderImage,
+          orderNotes: order.orderNotes,
+          shippingAddress: order.shippingAddress,
+          createdAt: order.createdAt,
+          items: order.items.map(item => ({
+            id: item.id,
+            quantity: item.quantity,
+            price: item.price,
+            size: item.size,
+            color: item.color,
+            product: {
+              id: item.product.id,
+              name: item.product.name,
+              price: item.product.price,
+              images: item.product.images,
+              printifyProductId: item.product.printifyProductId
+            }
+          }))
+        }))
+      };
+      
+      return formattedUser;
+    }
+    
+    // Return basic user info without orders
+    return {
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      phone: user.phone,
+      address: user.address,
+      isActive: user.isActive,
+      emailVerified: user.emailVerified,
+      createdAt: user.createdAt,
+      updatedAt: user.updatedAt
+    };
+  } catch (error) {
+    throw new Error(`Failed to get user: ${error.message}`);
+  }
+}
+
+
+// Add this function to your userService.js
+export async function getUserStats() {
+  try {
+    // Get total users count
+    const totalUsers = await userModel.getTotalUsersCount();
+    
+    // Get active users count
+    const activeUsers = await userModel.getActiveUsersCount();
+    
+    // Get inactive users count
+    const inactiveUsers = await userModel.getInactiveUsersCount();
+    
+    // Get new users this month
+    const newUsersThisMonth = await userModel.getNewUsersThisMonth();
+    
+    // Get total orders count (if you have orders)
+    const totalOrders = await userModel.getTotalOrdersCount();
+    
+    // Get orders this month
+    const ordersThisMonth = await userModel.getOrdersThisMonth();
+    
+    // Calculate percentages
+    const activePercentage = totalUsers > 0 ? Math.round((activeUsers / totalUsers) * 100) : 0;
+    const inactivePercentage = totalUsers > 0 ? Math.round((inactiveUsers / totalUsers) * 100) : 0;
+    
+    return {
+      totalUsers,
+      activeUsers,
+      inactiveUsers,
+      newUsersThisMonth,
+      totalOrders,
+      ordersThisMonth,
+      activePercentage,
+      inactivePercentage
+    };
+  } catch (error) {
+    throw new Error(`Failed to get user stats: ${error.message}`);
+  }
+}

@@ -2,62 +2,36 @@
 import app from "./app.js";
 import { connectDB, disconnectDB } from "./src/config/prisma.js";
 import logger from "./src/utils/logger.js";
+import { initSocket, getIO } from "./src/config/socket.js";
+import { currencyUpdateService } from "./src/services/currencyUpdateService.js";
 
 const PORT = process.env.PORT || 5000;
 
-// Graceful shutdown function
-async function gracefulShutdown(signal) {
-  logger.info(`Received ${signal}. Starting graceful shutdown...`);
-  
-  try {
-    // Close server
-    server.close(() => {
-      logger.info("HTTP server closed.");
-    });
-
-    // Close database connection
-    await disconnectDB();
-    logger.info("Database connection closed.");
-
-    // Exit process
-    process.exit(0);
-  } catch (error) {
-    logger.error("Error during graceful shutdown:", error);
-    process.exit(1);
-  }
-}
-
-// Handle uncaught exceptions
-process.on("uncaughtException", (error) => {
-  logger.error("Uncaught Exception:", error);
-  process.exit(1);
-});
-
-// Handle unhandled rejections
-process.on("unhandledRejection", (reason, promise) => {
-  logger.error("Unhandled Rejection at:", promise, "reason:", reason);
-  process.exit(1);
-});
-
-// Signal handlers for graceful shutdown
-const signals = ["SIGINT", "SIGTERM", "SIGQUIT"];
-signals.forEach(signal => {
-  process.on(signal, () => gracefulShutdown(signal));
-});
-
-// Start server
+// Start server function
 async function startServer() {
   try {
     // Connect to database
     await connectDB();
     logger.info("✅ Database connected successfully");
 
+        // Initialize currency service
+    await initializeCurrencyService();
     // Start HTTP server
     const server = app.listen(PORT, () => {
       logger.info(`🚀 Server running on port ${PORT}`);
       logger.info(`📊 Environment: ${process.env.NODE_ENV || 'development'}`);
       logger.info(`🔗 Health check: http://localhost:${PORT}/health`);
       logger.info(`🌐 Allowed origins: ${process.env.ALLOWED_ORIGINS || 'All origins'}`);
+    });
+
+    // Initialize Socket.IO
+    initSocket(server);
+    logger.info("✅ Socket.IO initialized");
+
+    // Make io available in routes
+    app.use((req, res, next) => {
+      req.io = getIO();
+      next();
     });
 
     // Handle server errors
@@ -77,8 +51,71 @@ async function startServer() {
   }
 }
 
+// Initialize currency service
+async function initializeCurrencyService() {
+  try {
+    // Start currency auto-updates (only in production/staging, or development if you want)
+    if (process.env.NODE_ENV !== 'development') {
+      currencyUpdateService.startAutoUpdates();
+      logger.info("✅ Currency auto-update service started");
+    } else {
+      logger.info("🔶 Currency auto-updates disabled in development");
+      // You can still manually update via API in development
+    }
+  } catch (error) {
+    logger.error("❌ Failed to initialize currency service:", error);
+  }
+}
+
+// Graceful shutdown function
+async function gracefulShutdown(signal) {
+  logger.info(`Received ${signal}. Starting graceful shutdown...`);
+  
+  try {
+    // Close server
+    if (server) {
+      server.close(() => {
+        logger.info("HTTP server closed.");
+      });
+    }
+
+    // Close database connection
+    await disconnectDB();
+    logger.info("Database connection closed.");
+
+    // Exit process
+    process.exit(0);
+  } catch (error) {
+    logger.error("Error during graceful shutdown:", error);
+    process.exit(1);
+  }
+}
+
+
+
+// Handle uncaught exceptions
+process.on("uncaughtException", (error) => {
+  logger.error("Uncaught Exception:", error);
+  process.exit(1);
+});
+
+// Handle unhandled rejections
+process.on("unhandledRejection", (reason, promise) => {
+  logger.error("Unhandled Rejection at:", promise, "reason:", reason);
+  process.exit(1);
+});
+
+// Signal handlers for graceful shutdown
+const signals = ["SIGINT", "SIGTERM", "SIGQUIT"];
+signals.forEach(signal => {
+  process.on(signal, () => gracefulShutdown(signal));
+});
+
 // Start the application
-const server = startServer();
+let server;
+startServer().then(s => {
+  server = s;
+});
 
 // Export for testing purposes
 export { app, startServer };

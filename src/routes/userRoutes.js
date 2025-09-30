@@ -6,13 +6,13 @@ import {
   getProfile,
   updateProfile,
   forgotPassword,
-  resetPassword
+  resetPassword,
+  getUserById
 } from "../controllers/userController.js";
 import {
   registerValidator,
   loginValidator,
   updateProfileValidator,
-  changePasswordValidator
 } from "../validators/userValidator.js";
 import { validateRequest } from "../middlewares/validateRequest.js";
 import { verifyUserToken } from "../middlewares/authToken.js";
@@ -28,5 +28,7 @@ router.post("/reset-password", resetPassword);
 // Protected routes
 router.get("/profile", verifyUserToken, getProfile);
 router.put("/profile", verifyUserToken, updateProfileValidator, validateRequest, updateProfile);
+
+
 
 export default router;
