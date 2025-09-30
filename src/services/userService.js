@@ -6,26 +6,24 @@ import crypto from "crypto";
 import { sendMail } from "../utils/mailer.js";
 import { getWelcomeEmail, getPasswordResetEmail, getPasswordResetSuccessEmail } from "../utils/emailTemplates.js";
 
-
-// services/userService.js - OPTIMIZED
 export async function registerUser(name, email, password, phone, address) {
   try {
     // Validate email format
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(email)) {
-      throw new Error("Please enter a valid email address");
+      throw new Error("Invalid email format");
     }
 
     // Check if user already exists
     const existingUser = await userModel.findUserByEmail(email);
     if (existingUser) {
-      throw new Error("An account with this email already exists. Please try logging in or use a different email.");
+      throw new Error("User with this email already exists");
     }
 
     // Validate password strength
     const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/;
     if (!passwordRegex.test(password)) {
-      throw new Error("Password must be at least 8 characters and include uppercase, lowercase, number, and special character");
+      throw new Error("Password must be at least 8 characters with uppercase, lowercase, number, and special character");
     }
 
     // Hash password
@@ -34,7 +32,7 @@ export async function registerUser(name, email, password, phone, address) {
     // Generate verification token
     const verificationToken = crypto.randomBytes(32).toString('hex');
 
-    // Save new user (this should be fast)
+    // Save new user
     const user = await userModel.createUser({
       name,
       email: email.toLowerCase(),
@@ -44,35 +42,26 @@ export async function registerUser(name, email, password, phone, address) {
       verificationToken
     });
 
-    // Send email ASYNCHRONOUSLY - don't wait for it
-    setTimeout(async () => {
-      try {
-        const verificationUrl = `${process.env.CLIENT_URL}/verify-email?token=${verificationToken}`;
-        await sendMail(
-          email,
-          "Welcome to Our Platform - Verify Your Email",
-          getWelcomeEmail(name, verificationUrl)
-        );
-        console.log('Welcome email sent to:', email);
-      } catch (emailError) {
-        console.error('Email sending failed:', emailError);
-        // Don't affect registration
-      }
-    }, 0);
+    // Send welcome email with verification link
+    const verificationUrl = `${process.env.CLIENT_URL}/verify-email?token=${verificationToken}`;
+    await sendMail(
+      email,
+      "Welcome to Our Platform - Verify Your Email",
+      getWelcomeEmail(name, verificationUrl)
+    );
 
-    // Return success immediately without waiting for email
     return { 
-      success: true,
       id: user.id, 
       name: user.name, 
       email: user.email, 
       phone: user.phone,
-      message: "Registration successful! You will receive a verification email shortly." 
+      message: "Registration successful. Please check your email for verification." 
     };
   } catch (error) {
-    throw error;
+    throw new Error(`Registration failed: ${error.message}`);
   }
 }
+
 
 export async function loginUser(email, password) {
   try {
