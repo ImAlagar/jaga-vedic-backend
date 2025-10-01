@@ -202,37 +202,6 @@ model ContactInquiry {
 }
 
 //
-// 🔹 Currency Table
-//
-model Currency {
-  code        String   @id
-  name        String
-  symbol      String
-  rate        Float    @default(1.0)
-  countryCodes String[] // Store as JSON array
-  locale      String   @default("en-US")
-  isActive    Boolean  @default(true)
-  lastUpdated DateTime @default(now())
-
-  @@map("currencies")
-}
-
-//
-// 🔹 Currency Update Log Table
-//
-model CurrencyUpdateLog {
-  id          Int      @id @default(autoincrement())
-  base        String   @default("USD")
-  ratesCount  Int
-  success     Boolean
-  error       String?
-  source      String?
-  createdAt   DateTime @default(now())
-
-  @@map("currency_update_logs")
-}
-
-//
 // 🔹 Enums
 //
 enum Role {

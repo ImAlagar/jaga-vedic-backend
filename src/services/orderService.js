@@ -12,7 +12,7 @@ export class OrderService {
   }
 
   // 🔹 Create Order
-  async createOrder(userId, orderData) {
+async createOrder(userId, orderData) {
     const { items, shippingAddress, orderImage, orderNotes } = orderData;
 
     // 1. Ensure user exists
@@ -21,6 +21,7 @@ export class OrderService {
 
     // 2. Calculate total + prepare items
     let totalAmount = 0;
+    let subtotalAmount = 0; // Add this variable
     const orderItems = [];
 
     for (const item of items) {
@@ -38,6 +39,7 @@ export class OrderService {
 
       const itemTotal = variantInfo.price * item.quantity;
       totalAmount += itemTotal;
+      subtotalAmount += itemTotal; // Calculate subtotal
 
       orderItems.push({
         productId: item.productId,
@@ -56,12 +58,11 @@ export class OrderService {
       data: {
         userId,
         totalAmount,
+        subtotalAmount: subtotalAmount, // Add this field
         paymentStatus: "PENDING",
         shippingAddress,
         orderImage,
         orderNotes,
-        subtotalAmount: totalAmount, 
-
         items: {
           create: orderItems,
         },

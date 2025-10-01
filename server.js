@@ -3,7 +3,6 @@ import app from "./app.js";
 import { connectDB, disconnectDB } from "./src/config/prisma.js";
 import logger from "./src/utils/logger.js";
 import { initSocket, getIO } from "./src/config/socket.js";
-import { currencyUpdateService } from "./src/services/currencyUpdateService.js";
 
 const PORT = process.env.PORT || 5000;
 
@@ -14,8 +13,6 @@ async function startServer() {
     await connectDB();
     logger.info("✅ Database connected successfully");
 
-        // Initialize currency service
-    await initializeCurrencyService();
     // Start HTTP server
     const server = app.listen(PORT, () => {
       logger.info(`🚀 Server running on port ${PORT}`);
@@ -51,21 +48,6 @@ async function startServer() {
   }
 }
 
-// Initialize currency service
-async function initializeCurrencyService() {
-  try {
-    // Start currency auto-updates (only in production/staging, or development if you want)
-    if (process.env.NODE_ENV !== 'development') {
-      currencyUpdateService.startAutoUpdates();
-      logger.info("✅ Currency auto-update service started");
-    } else {
-      logger.info("🔶 Currency auto-updates disabled in development");
-      // You can still manually update via API in development
-    }
-  } catch (error) {
-    logger.error("❌ Failed to initialize currency service:", error);
-  }
-}
 
 // Graceful shutdown function
 async function gracefulShutdown(signal) {

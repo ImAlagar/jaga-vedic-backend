@@ -7,7 +7,6 @@ import orderRoutes from "./orderRoutes.js";
 import debugRoutes from "./debugRoutes.js";
 import dashboardRoutes from "./dashboardRoutes.js";
 import contactRoutes from "./contactRoutes.js";
-import currencyRoutes from "./currencyRoutes.js";
 import searchRoutes from "./searchRoutes.js";
 import couponRoutes from "./couponRoutes.js"; // 👈 ADD THIS
 
@@ -22,7 +21,6 @@ router.use("/orders", orderRoutes);
 router.use("/debug", debugRoutes);
 router.use("/dashboard", dashboardRoutes);
 router.use("/contact", contactRoutes);
-router.use("/currency", currencyRoutes);
 router.use("/search", searchRoutes);
 router.use("/coupons", couponRoutes); // 👈 ADD THIS
 
