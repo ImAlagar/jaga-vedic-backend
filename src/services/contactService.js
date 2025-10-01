@@ -5,26 +5,23 @@ import { getContactConfirmationEmail, getNewInquiryAdminEmail } from "../utils/c
 
 export async function submitContactInquiry(inquiryData) {
   try {
-    // Create the inquiry in database
     const inquiry = await contactModel.createContactInquiry(inquiryData);
     
-    // Send confirmation email to user
-    await sendMail(
+    // Fire and forget - don't wait for emails
+    sendMail(
       inquiry.email,
       "We've Received Your Inquiry - Tech Buddyzz",
       getContactConfirmationEmail(inquiry)
-    );
+    ).catch(err => console.error('User email failed:', err));
     
-    // Send notification email to admin
-    await sendMail(
+    sendMail(
       process.env.ADMIN_EMAIL,
       `New Contact Inquiry: ${inquiry.subject}`,
       getNewInquiryAdminEmail(inquiry)
-    );
+    ).catch(err => console.error('Admin email failed:', err));
     
     return inquiry;
   } catch (error) {
-    console.error("Error in submitContactInquiry:", error);
     throw new Error(`Failed to submit contact inquiry: ${error.message}`);
   }
 }
