@@ -12,6 +12,7 @@ export class OrderService {
   }
 
   // 🔹 Create Order
+// 🔹 Create Order - OPTIMIZED
 async createOrder(userId, orderData) {
     const { items, shippingAddress, orderImage, orderNotes } = orderData;
 
@@ -19,112 +20,144 @@ async createOrder(userId, orderData) {
     const user = await prisma.user.findUnique({ where: { id: userId } });
     if (!user) throw new Error(`User with ID ${userId} not found`);
 
-    // 2. Calculate total + prepare items
+    // 2. Pre-fetch all products at once (reduces DB calls)
+    const productIds = items.map(item => item.productId);
+    const products = await prisma.product.findMany({
+        where: { id: { in: productIds } }
+    });
+    
+    const productMap = new Map(products.map(p => [p.id, p]));
+
+    // 3. Calculate total + prepare items (parallel validation)
     let totalAmount = 0;
-    let subtotalAmount = 0; // Add this variable
+    let subtotalAmount = 0;
     const orderItems = [];
+    
+    // Validate all variants in parallel
+    const validationPromises = items.map(item => 
+        this.variantService.validateVariant(item.productId, item.variantId)
+    );
+    
+    const variantResults = await Promise.all(validationPromises);
 
-    for (const item of items) {
-      const variantInfo = await this.variantService.validateVariant(
-        item.productId,
-        item.variantId
-      );
+    for (let i = 0; i < items.length; i++) {
+        const item = items[i];
+        const variantInfo = variantResults[i];
+        const product = productMap.get(item.productId);
 
-      const product = await prisma.product.findUnique({
-        where: { id: item.productId },
-      });
+        if (!product) throw new Error(`Product ${item.productId} not found`);
+        if (!product.inStock) throw new Error(`Product ${product.name} out of stock`);
 
-      if (!product) throw new Error(`Product ${item.productId} not found`);
-      if (!product.inStock) throw new Error(`Product ${product.name} out of stock`);
+        const itemTotal = variantInfo.price * item.quantity;
+        totalAmount += itemTotal;
+        subtotalAmount += itemTotal;
 
-      const itemTotal = variantInfo.price * item.quantity;
-      totalAmount += itemTotal;
-      subtotalAmount += itemTotal; // Calculate subtotal
-
-      orderItems.push({
-        productId: item.productId,
-        quantity: item.quantity,
-        price: variantInfo.price,
-        printifyVariantId: item.variantId.toString(),
-        printifyBlueprintId: variantInfo.blueprintId,
-        printifyPrintProviderId: variantInfo.printProviderId,
-        size: item.size,
-        color: item.color,
-      });
+        orderItems.push({
+            productId: item.productId,
+            quantity: item.quantity,
+            price: variantInfo.price,
+            printifyVariantId: item.variantId.toString(),
+            printifyBlueprintId: variantInfo.blueprintId,
+            printifyPrintProviderId: variantInfo.printProviderId,
+            size: item.size,
+            color: item.color,
+        });
     }
 
-    // 3. Save order in DB
+    // 4. Save order in DB
     const order = await prisma.order.create({
-      data: {
-        userId,
-        totalAmount,
-        subtotalAmount: subtotalAmount, // Add this field
-        paymentStatus: "PENDING",
-        shippingAddress,
-        orderImage,
-        orderNotes,
-        items: {
-          create: orderItems,
+        data: {
+            userId,
+            totalAmount,
+            subtotalAmount,
+            paymentStatus: "PENDING",
+            shippingAddress,
+            orderImage,
+            orderNotes,
+            items: {
+                create: orderItems,
+            },
         },
-      },
-      include: {
-        user: true,
-        items: { include: { product: true } },
-      },
+        include: {
+            user: true,
+            items: { include: { product: true } },
+        },
     });
 
     logger.info(`✅ Order ${order.id} created in DB`);
 
-    // 4. Forward to Printify (non-blocking)
-    try {
-      const printifyService = new PrintifyOrderService(process.env.PRINTIFY_SHOP_ID);
-      const printifyItems = order.items.map((item) => ({
-        ...item,
-        printifyProductId: item.product.printifyProductId,
-        sku: item.product.sku,
-      }));
-
-      const printifyOrder = await printifyService.createOrder({
-        orderId: order.id,
-        items: printifyItems,
-        shippingAddress,
-        orderImage,
-      });
-
-      await prisma.order.update({
-        where: { id: order.id },
-        data: {
-          printifyOrderId: printifyOrder.id,
-          fulfillmentStatus: "PROCESSING",
-        },
-      });
-
-      logger.info(`✅ Order ${order.id} forwarded to Printify: ${printifyOrder.id}`);
-    } catch (err) {
-      logger.error(`⚠️ Printify forwarding failed for order ${order.id}: ${err.message}`);
-    }
-
-    // 5. Send notifications
-    try {
-      await sendMail(
-        order.user.email,
-        `Order Confirmation - #${order.id}`,
-        getOrderConfirmationEmail(order)
-      );
-
-      await sendMail(
-        process.env.ADMIN_EMAIL,
-        `New Order - #${order.id}`,
-        getAdminNewOrderEmail(order)
-      );
-
-      logger.info(`📧 Notifications sent for order ${order.id}`);
-    } catch (mailErr) {
-      logger.error(`❌ Email sending failed: ${mailErr.message}`);
-    }
+    // 5. ASYNC OPERATIONS - Don't wait for these
+    this.handleAsyncOperations(order).catch(err => {
+        logger.error(`Async operations failed for order ${order.id}:`, err);
+    });
 
     return order;
-  }
+}
+
+// 🔹 Handle async operations separately
+async handleAsyncOperations(order) {
+    try {
+        // Run Printify and Email in parallel
+        await Promise.allSettled([
+            this.forwardToPrintify(order),
+            this.sendOrderNotifications(order)
+        ]);
+    } catch (error) {
+        logger.error(`Async operations error for order ${order.id}:`, error);
+    }
+}
+
+// 🔹 Forward to Printify
+async forwardToPrintify(order) {
+    try {
+        const printifyService = new PrintifyOrderService(process.env.PRINTIFY_SHOP_ID);
+        const printifyItems = order.items.map((item) => ({
+            ...item,
+            printifyProductId: item.product.printifyProductId,
+            sku: item.product.sku,
+        }));
+
+        const printifyOrder = await printifyService.createOrder({
+            orderId: order.id,
+            items: printifyItems,
+            shippingAddress: order.shippingAddress,
+            orderImage: order.orderImage,
+        });
+
+        await prisma.order.update({
+            where: { id: order.id },
+            data: {
+                printifyOrderId: printifyOrder.id,
+                fulfillmentStatus: "PROCESSING",
+            },
+        });
+
+        logger.info(`✅ Order ${order.id} forwarded to Printify: ${printifyOrder.id}`);
+    } catch (err) {
+        logger.error(`⚠️ Printify forwarding failed for order ${order.id}: ${err.message}`);
+    }
+}
+
+// 🔹 Send notifications
+async sendOrderNotifications(order) {
+    try {
+        await Promise.allSettled([
+            sendMail(
+                order.user.email,
+                `Order Confirmation - #${order.id}`,
+                getOrderConfirmationEmail(order)
+            ),
+            sendMail(
+                process.env.ADMIN_EMAIL,
+                `New Order - #${order.id}`,
+                getAdminNewOrderEmail(order)
+            )
+        ]);
+        logger.info(`📧 Notifications sent for order ${order.id}`);
+    } catch (mailErr) {
+        logger.error(`❌ Email sending failed: ${mailErr.message}`);
+    }
+}
   // 🔹 User's Orders
 // In your orderService.js
 async getUserOrders(userId) {
