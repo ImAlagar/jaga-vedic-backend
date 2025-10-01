@@ -10,7 +10,6 @@ export class CreateOrderDto {
     this.shippingAddress = shippingAddress;
     this.orderImage = orderImage;
     this.orderNotes = orderNotes;
-    this.subtotalAmount = subtotalAmount; // Add this
   }
 
   validate() {
