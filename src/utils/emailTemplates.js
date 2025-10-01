@@ -80,7 +80,7 @@ export function getPasswordResetSuccessEmail(adminName = 'Admin') {
 
 
 // utils/emailTemplates.js (Add these templates)
-export function getWelcomeEmail(name, verificationUrl) {
+export function getWelcomeEmail(name) {
   return `
     <!DOCTYPE html>
     <html>

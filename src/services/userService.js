@@ -40,7 +40,7 @@ export async function registerUser(name, email, password, phone) {
     await sendMail(
       email,
       "Welcome to Our Platform - Verify Your Email",
-      getWelcomeEmail(name, verificationUrl)
+      getWelcomeEmail(name)
     );
 
     return { 
