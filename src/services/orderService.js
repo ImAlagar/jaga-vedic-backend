@@ -60,6 +60,8 @@ export class OrderService {
         shippingAddress,
         orderImage,
         orderNotes,
+        subtotalAmount: totalAmount, 
+
         items: {
           create: orderItems,
         },
