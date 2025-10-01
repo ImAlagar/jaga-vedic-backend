@@ -20,7 +20,6 @@ export async function registerUser(name, email, password, phone) {
       throw new Error("User with this email already exists");
     }
 
-
     // Hash password
     const hashedPassword = await bcrypt.hash(password, 12);
 
@@ -36,13 +35,17 @@ export async function registerUser(name, email, password, phone) {
       verificationToken
     });
 
-    // Send welcome email with verification link
-    await sendMail(
+    // ✅ CRITICAL FIX: Send email ASYNCHRONOUSLY without waiting
+    sendMail(
       email,
       "Welcome to Our Platform - Verify Your Email",
       getWelcomeEmail(name)
-    );
+    ).catch(error => {
+      console.error('Email sending failed:', error);
+      // Don't throw error - email failure shouldn't block registration
+    });
 
+    // ✅ Return response IMMEDIATELY without waiting for email
     return { 
       id: user.id, 
       name: user.name, 
