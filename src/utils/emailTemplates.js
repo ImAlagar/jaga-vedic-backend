@@ -95,9 +95,6 @@ export function getWelcomeEmail(name, verificationUrl) {
         <div class="container">
             <h2>Welcome to Our Platform, ${name}!</h2>
             <p>Thank you for registering. Please verify your email address to get started.</p>
-            <a href="${verificationUrl}" class="button">Verify Email</a>
-            <p>If the button doesn't work, copy and paste this link in your browser:</p>
-            <p>${verificationUrl}</p>
         </div>
     </body>
     </html>
@@ -105,7 +102,6 @@ export function getWelcomeEmail(name, verificationUrl) {
 }
 
 
-// src/utils/emailTemplates.js
 
 // 🔹 Order Confirmation Email (Sent when order is created)
 export function getOrderConfirmationEmail(order) {

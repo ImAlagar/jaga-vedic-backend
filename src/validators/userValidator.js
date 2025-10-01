@@ -25,11 +25,6 @@ export const registerValidator = [
     .isMobilePhone()
     .withMessage("Valid phone number is required"),
   
-  body("address")
-    .optional()
-    .trim()
-    .isLength({ max: 200 })
-    .withMessage("Address must be less than 200 characters")
 ];
 
 export const loginValidator = [

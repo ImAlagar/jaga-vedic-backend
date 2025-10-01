@@ -6,14 +6,20 @@ import crypto from "crypto";
 import { sendMail } from "../utils/mailer.js";
 import { getWelcomeEmail, getPasswordResetEmail, getPasswordResetSuccessEmail } from "../utils/emailTemplates.js";
 
-export async function registerUser(name, email, password) {
+export async function registerUser(name, email, password, phone) {
   try {
+    // Validate email format
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      throw new Error("Invalid email format");
+    }
 
     // Check if user already exists
     const existingUser = await userModel.findUserByEmail(email);
     if (existingUser) {
       throw new Error("User with this email already exists");
     }
+
 
     // Hash password
     const hashedPassword = await bcrypt.hash(password, 12);
@@ -26,11 +32,11 @@ export async function registerUser(name, email, password) {
       name,
       email: email.toLowerCase(),
       password: hashedPassword,
+      phone,
       verificationToken
     });
 
     // Send welcome email with verification link
-    const verificationUrl = `${process.env.CLIENT_URL}/verify-email?token=${verificationToken}`;
     await sendMail(
       email,
       "Welcome to Our Platform - Verify Your Email",
