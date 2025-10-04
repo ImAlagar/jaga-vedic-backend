@@ -1,7 +1,10 @@
-import paymentService from '../services/paymentService.js';
-import { successResponse, errorResponse } from '../utils/responseHandler.js';
-import prisma from '../config/prisma.js';
-import logger from '../utils/logger.js';
+// src/controllers/paymentController.js
+import { PaymentService } from "../services/paymentService.js";
+import { successResponse, errorResponse } from "../utils/responseHandler.js";
+import HttpStatus from "../constants/httpStatusCode.js";
+import crypto from 'crypto';
+
+const paymentService = new PaymentService();
 
 export async function createPaymentOrder(req, res) {
   try {
@@ -9,130 +12,72 @@ export async function createPaymentOrder(req, res) {
     const userId = req.user.id;
 
     if (!orderId) {
-      return errorResponse(res, 'Order ID is required', 400);
+      return errorResponse(res, "Order ID is required", HttpStatus.BAD_REQUEST);
     }
 
-    // Fetch order details
-    const order = await prisma.order.findUnique({
-      where: { id: parseInt(orderId) },
-      include: {
-        items: {
-          include: {
-            product: true
-          }
-        },
-        user: true
-      }
-    });
-
-    if (!order) {
-      return errorResponse(res, 'Order not found', 404);
-    }
-
-    if (order.userId !== userId) {
-      return errorResponse(res, 'Unauthorized access', 403);
-    }
-
-    const paymentOrder = await paymentService.initiatePayment({
-      orderId: order.id,
-      amount: order.totalAmount,
-      currency: 'INR',
-      userId: userId,
-      products: order.items
-    });
-
-    logger.info('Payment order created', { orderId, userId });
-
-    return successResponse(
-      res, 
-      paymentOrder, 
-      'Payment order created successfully', 
-      200
-    );
+    const paymentOrder = await paymentService.createRazorpayOrder(orderId, userId);
+    return successResponse(res, paymentOrder, "Payment order created successfully");
   } catch (error) {
-    logger.error('Create payment order failed', { error: error.message });
-    return errorResponse(res, error.message, 400);
+    return errorResponse(res, error.message, HttpStatus.BAD_REQUEST);
   }
 }
 
 export async function verifyPayment(req, res) {
   try {
-    const { 
-      razorpay_payment_id, 
-      razorpay_order_id, 
-      razorpay_signature,
-      orderId 
-    } = req.body;
+    const { razorpay_payment_id, razorpay_order_id, razorpay_signature, orderId } = req.body;
+    const userId = req.user.id;
 
-    if (!razorpay_payment_id || !razorpay_order_id || !razorpay_signature) {
-      return errorResponse(res, 'Payment verification data incomplete', 400);
-    }
-
-    const result = await paymentService.verifyAndCapturePayment({
+    const verification = await paymentService.verifyRazorpayPayment({
       razorpay_payment_id,
       razorpay_order_id,
-      razorpay_signature
-    });
+      razorpay_signature,
+      orderId
+    }, userId);
 
-    logger.info('Payment verified successfully', { 
-      orderId: result.order.id,
-      paymentId: razorpay_payment_id 
-    });
-
-    return successResponse(
-      res, 
-      result, 
-      'Payment verified successfully', 
-      200
-    );
+    return successResponse(res, verification, "Payment verified successfully");
   } catch (error) {
-    logger.error('Payment verification failed', { error: error.message });
-    
-    // Mark payment as failed
-    if (req.body.orderId) {
-      await paymentService.handlePaymentFailure(
-        req.body.orderId, 
-        error.message
-      );
+    return errorResponse(res, error.message, HttpStatus.BAD_REQUEST);
+  }
+}
+
+// 🔹 Webhook endpoint for Razorpay
+export async function handlePaymentWebhook(req, res) {
+  try {
+    const secret = process.env.RAZORPAY_WEBHOOK_SECRET;
+    const signature = req.headers['x-razorpay-signature'];
+
+    // Verify webhook signature
+    const expectedSignature = crypto
+      .createHmac('sha256', secret)
+      .update(JSON.stringify(req.body))
+      .digest('hex');
+
+    if (signature !== expectedSignature) {
+      console.error('❌ Webhook signature verification failed');
+      return res.status(400).send('Webhook signature verification failed');
     }
 
-    return errorResponse(res, error.message, 400);
+    const event = req.body;
+    console.log('🔔 Received webhook event:', event.event);
+
+    // Handle different webhook events
+    await paymentService.handleWebhookEvent(event);
+
+    res.status(200).send('Webhook received successfully');
+  } catch (error) {
+    console.error('❌ Webhook processing error:', error);
+    res.status(500).send('Webhook processing failed');
   }
 }
 
 export async function getPaymentStatus(req, res) {
   try {
     const { orderId } = req.params;
+    const userId = req.user.id;
 
-    const paymentStatus = await paymentService.getPaymentStatus(parseInt(orderId));
-
-    return successResponse(
-      res, 
-      paymentStatus, 
-      'Payment status retrieved', 
-      200
-    );
+    const status = await paymentService.getPaymentStatus(orderId, userId);
+    return successResponse(res, status, "Payment status fetched successfully");
   } catch (error) {
-    logger.error('Get payment status failed', { error: error.message });
-    return errorResponse(res, error.message, 400);
-  }
-}
-
-export async function processRefund(req, res) {
-  try {
-    const { orderId } = req.params;
-    const { amount, reason } = req.body;
-
-    const refund = await paymentService.processRefund(parseInt(orderId), amount, reason);
-
-    return successResponse(
-      res, 
-      refund, 
-      'Refund processed successfully', 
-      200
-    );
-  } catch (error) {
-    logger.error('Refund processing failed', { error: error.message });
-    return errorResponse(res, error.message, 400);
+    return errorResponse(res, error.message, HttpStatus.BAD_REQUEST);
   }
 }

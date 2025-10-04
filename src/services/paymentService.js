@@ -1,275 +1,259 @@
-import razorpayService from './razorpayService.js';
-import prisma from '../config/prisma.js';
-import logger from '../utils/logger.js';
+// src/services/paymentService.js
+import prisma from "../config/prisma.js";
+import Razorpay from "razorpay";
+import crypto from "crypto";
+import { sendMail } from "../utils/mailer.js";
+import { getPaymentSuccessEmail, getPaymentFailedEmail } from "../utils/emailTemplates.js";
+import logger from "../utils/logger.js";
 
-class PaymentService {
-  async initiatePayment(orderData) {
+export class PaymentService {
+  constructor() {
+    this.razorpay = new Razorpay({
+      key_id: process.env.RAZORPAY_KEY_ID,
+      key_secret: process.env.RAZORPAY_KEY_SECRET,
+    });
+  }
+
+  // Create Razorpay order
+  async createRazorpayOrder(orderId, userId) {
     try {
-      const { orderId, amount, currency, userId, products } = orderData;
-
-      // Validate order exists and is in pending state
-      const existingOrder = await prisma.order.findUnique({
-        where: { id: orderId },
+      // Verify order exists and belongs to user
+      const order = await prisma.order.findFirst({
+        where: { 
+          id: parseInt(orderId),
+          userId: userId 
+        },
         include: { user: true }
       });
 
-      if (!existingOrder) {
-        throw new Error('Order not found');
+      if (!order) {
+        throw new Error("Order not found or access denied");
       }
 
-      if (existingOrder.paymentStatus !== 'PENDING') {
-        throw new Error('Order payment already processed');
+      if (order.paymentStatus === "SUCCEEDED") {
+        throw new Error("Payment already completed for this order");
       }
 
       // Create Razorpay order
-      const razorpayOrder = await razorpayService.createOrder({
-        amount,
-        currency,
-        receipt: `order_${orderId}`,
+      const options = {
+        amount: Math.round(order.totalAmount * 100), // Convert to paise
+        currency: "INR",
+        receipt: `order_${order.id}`,
         notes: {
-          orderId: orderId.toString(),
+          orderId: order.id.toString(),
           userId: userId.toString()
         }
-      });
+      };
 
-      // Update order with Razorpay order ID
+      const razorpayOrder = await this.razorpay.orders.create(options);
+
+      // Store Razorpay order ID in database
       await prisma.order.update({
-        where: { id: orderId },
-        data: {
-          razorpayOrderId: razorpayOrder.order.id,
-          paymentStatus: 'PENDING'
+        where: { id: order.id },
+        data: { 
+          razorpayOrderId: razorpayOrder.id,
+          paymentStatus: "PENDING"
         }
       });
 
-      logger.info('Payment initiated successfully', { 
-        orderId, 
-        razorpayOrderId: razorpayOrder.order.id 
-      });
+      logger.info(`✅ Razorpay order created: ${razorpayOrder.id} for order ${order.id}`);
 
       return {
-        success: true,
-        order: razorpayOrder.order,
-        key: razorpayOrder.key,
-        orderId: existingOrder.id
+        id: razorpayOrder.id,
+        amount: razorpayOrder.amount,
+        currency: razorpayOrder.currency,
+        key: process.env.RAZORPAY_KEY_ID
       };
     } catch (error) {
-      logger.error('Payment initiation failed', { error: error.message });
+      logger.error(`❌ Razorpay order creation failed: ${error.message}`);
       throw error;
     }
   }
 
-  async verifyAndCapturePayment(paymentData) {
-    try {
-      const { razorpay_payment_id, razorpay_order_id, razorpay_signature } = paymentData;
+  // Verify payment signature
+  async verifyRazorpayPayment(paymentData, userId) {
+    const { razorpay_order_id, razorpay_payment_id, razorpay_signature, orderId } = paymentData;
 
-      // Verify payment signature
-      const isValid = await razorpayService.verifyPaymentSignature({
-        razorpay_order_id,
-        razorpay_payment_id,
-        razorpay_signature
+    try {
+      // Verify the order belongs to the user
+      const order = await prisma.order.findFirst({
+        where: { 
+          id: parseInt(orderId),
+          userId: userId,
+          razorpayOrderId: razorpay_order_id
+        },
+        include: { user: true, items: { include: { product: true } } }
       });
 
-      if (!isValid) {
-        throw new Error('Invalid payment signature');
+      if (!order) {
+        throw new Error("Order not found or access denied");
       }
 
-      // Fetch payment details from Razorpay
-      const paymentDetails = await razorpayService.fetchPayment(razorpay_payment_id);
+      // Verify payment signature
+      const expectedSignature = crypto
+        .createHmac("sha256", process.env.RAZORPAY_KEY_SECRET)
+        .update(razorpay_order_id + "|" + razorpay_payment_id)
+        .digest("hex");
 
-      if (paymentDetails.status !== 'captured') {
-        throw new Error('Payment not captured');
+      if (expectedSignature !== razorpay_signature) {
+        // Update order status to failed
+        await prisma.order.update({
+          where: { id: order.id },
+          data: { 
+            paymentStatus: "FAILED",
+            paymentError: "Signature verification failed"
+          }
+        });
+
+        throw new Error("Payment verification failed");
       }
 
-      // Update order payment status
+      // Update order status to succeeded
       const updatedOrder = await prisma.order.update({
-        where: { razorpayOrderId: razorpay_order_id },
-        data: {
-          paymentStatus: 'SUCCEEDED',
+        where: { id: order.id },
+        data: { 
+          paymentStatus: "SUCCEEDED",
           razorpayPaymentId: razorpay_payment_id,
-          fulfillmentStatus: 'PROCESSING',
-          updatedAt: new Date()
+          fulfillmentStatus: "PROCESSING"
         },
         include: {
           user: true,
-          items: {
-            include: {
-              product: true
-            }
-          }
+          items: { include: { product: true } }
         }
       });
 
-      // Create payment log
-      await prisma.paymentLog.create({
-        data: {
-          orderId: updatedOrder.id,
-          paymentId: razorpay_payment_id,
-          amount: updatedOrder.totalAmount,
-          currency: 'INR',
-          status: 'CAPTURED',
-          gateway: 'RAZORPAY',
-          rawResponse: JSON.stringify(paymentDetails),
-          createdAt: new Date()
-        }
-      });
+      // Send payment success email
+      await sendMail(
+        order.user.email,
+        `Payment Successful - Order #${order.id}`,
+        getPaymentSuccessEmail(updatedOrder)
+      );
 
-      logger.info('Payment verified and captured successfully', {
-        orderId: updatedOrder.id,
-        paymentId: razorpay_payment_id
-      });
+      logger.info(`✅ Payment verified successfully for order ${order.id}`);
 
       return {
         success: true,
         order: updatedOrder,
-        payment: paymentDetails
+        paymentId: razorpay_payment_id
       };
     } catch (error) {
-      logger.error('Payment verification failed', { error: error.message });
+      logger.error(`❌ Payment verification failed: ${error.message}`);
       
-      // Update order as failed
-      try {
-        const failedOrder = await prisma.order.findFirst({
-          where: { razorpayOrderId: paymentData.razorpay_order_id }
+      // Update order status to failed
+      await prisma.order.update({
+        where: { id: parseInt(orderId) },
+        data: { 
+          paymentStatus: "FAILED",
+          paymentError: error.message
+        }
+      });
+
+      throw error;
+    }
+  }
+
+  // Handle webhook events from Razorpay
+  async handleWebhookEvent(event) {
+    try {
+      const { payload } = event;
+      
+      switch (event.event) {
+        case 'payment.captured':
+          await this.handlePaymentCaptured(payload.payment.entity);
+          break;
+        
+        case 'payment.failed':
+          await this.handlePaymentFailed(payload.payment.entity);
+          break;
+        
+        case 'order.paid':
+          await this.handleOrderPaid(payload.order.entity);
+          break;
+          
+        default:
+          logger.info(`ℹ️ Unhandled webhook event: ${event.event}`);
+      }
+    } catch (error) {
+      logger.error(`❌ Webhook handling error: ${error.message}`);
+      throw error;
+    }
+  }
+
+  async handlePaymentCaptured(payment) {
+    try {
+      const order = await prisma.order.findFirst({
+        where: { razorpayOrderId: payment.order_id },
+        include: { user: true }
+      });
+
+      if (order && order.paymentStatus !== "SUCCEEDED") {
+        await prisma.order.update({
+          where: { id: order.id },
+          data: { 
+            paymentStatus: "SUCCEEDED",
+            razorpayPaymentId: payment.id,
+            fulfillmentStatus: "PROCESSING"
+          }
         });
 
-        if (failedOrder) {
-          await this.handlePaymentFailure(failedOrder.id, error.message);
-        }
-      } catch (dbError) {
-        logger.error('Failed to update payment failure status', { error: dbError.message });
+        logger.info(`✅ Payment captured via webhook for order ${order.id}`);
       }
-
-      throw error;
+    } catch (error) {
+      logger.error(`❌ Payment captured webhook error: ${error.message}`);
     }
   }
 
-  async handlePaymentFailure(orderId, errorMessage) {
+  async handlePaymentFailed(payment) {
     try {
-      const updatedOrder = await prisma.order.update({
-        where: { id: orderId },
-        data: {
-          paymentStatus: 'FAILED',
-          updatedAt: new Date()
-        }
+      const order = await prisma.order.findFirst({
+        where: { razorpayOrderId: payment.order_id }
       });
 
-      await prisma.paymentLog.create({
-        data: {
-          orderId: orderId,
-          paymentId: `failed_${Date.now()}`,
-          amount: updatedOrder.totalAmount,
-          currency: 'INR',
-          status: 'FAILED',
-          gateway: 'RAZORPAY',
-          errorMessage: errorMessage,
-          createdAt: new Date()
-        }
-      });
+      if (order) {
+        await prisma.order.update({
+          where: { id: order.id },
+          data: { 
+            paymentStatus: "FAILED",
+            paymentError: payment.error_description || "Payment failed"
+          }
+        });
 
-      logger.info('Payment marked as failed', { orderId, errorMessage });
-      
-      return updatedOrder;
+        // Send payment failed email
+        if (order.user) {
+          await sendMail(
+            order.user.email,
+            `Payment Failed - Order #${order.id}`,
+            getPaymentFailedEmail(order)
+          );
+        }
+
+        logger.info(`❌ Payment failed via webhook for order ${order.id}`);
+      }
     } catch (error) {
-      logger.error('Failed to update payment status', { orderId, error: error.message });
-      throw error;
+      logger.error(`❌ Payment failed webhook error: ${error.message}`);
     }
   }
 
-  async processRefund(orderId, amount, reason = 'Customer request') {
-    try {
-      const order = await prisma.order.findUnique({
-        where: { id: orderId }
-      });
-
-      if (!order || !order.razorpayPaymentId) {
-        throw new Error('Order or payment not found');
+  async getPaymentStatus(orderId, userId) {
+    const order = await prisma.order.findFirst({
+      where: { 
+        id: parseInt(orderId),
+        userId: userId 
+      },
+      select: {
+        id: true,
+        paymentStatus: true,
+        fulfillmentStatus: true,
+        razorpayOrderId: true,
+        razorpayPaymentId: true,
+        totalAmount: true
       }
+    });
 
-      if (order.paymentStatus !== 'SUCCEEDED') {
-        throw new Error('Cannot refund non-successful payment');
-      }
-
-      const refund = await razorpayService.refundPayment(
-        order.razorpayPaymentId,
-        amount || order.totalAmount
-      );
-
-      // Update order status and create refund record
-      await prisma.$transaction([
-        prisma.order.update({
-          where: { id: orderId },
-          data: {
-            paymentStatus: 'REFUNDED',
-            updatedAt: new Date()
-          }
-        }),
-        prisma.refund.create({
-          data: {
-            orderId: orderId,
-            refundId: refund.id,
-            amount: amount || order.totalAmount,
-            status: 'PROCESSED',
-            reason: reason,
-            processedAt: new Date(),
-            createdAt: new Date()
-          }
-        }),
-        prisma.paymentLog.create({
-          data: {
-            orderId: orderId,
-            paymentId: refund.id,
-            amount: amount || order.totalAmount,
-            currency: 'INR',
-            status: 'REFUNDED',
-            gateway: 'RAZORPAY',
-            rawResponse: JSON.stringify(refund),
-            createdAt: new Date()
-          }
-        })
-      ]);
-
-      logger.info('Refund processed successfully', { orderId, refundId: refund.id });
-
-      return refund;
-    } catch (error) {
-      logger.error('Refund processing failed', { orderId, error: error.message });
-      throw error;
+    if (!order) {
+      throw new Error("Order not found");
     }
-  }
 
-  async getPaymentStatus(orderId) {
-    try {
-      const order = await prisma.order.findUnique({
-        where: { id: orderId },
-        include: {
-          paymentLogs: {
-            orderBy: { createdAt: 'desc' },
-            take: 1
-          },
-          refunds: {
-            orderBy: { createdAt: 'desc' }
-          }
-        }
-      });
-
-      if (!order) {
-        throw new Error('Order not found');
-      }
-
-      return {
-        orderId: order.id,
-        paymentStatus: order.paymentStatus,
-        razorpayOrderId: order.razorpayOrderId,
-        razorpayPaymentId: order.razorpayPaymentId,
-        totalAmount: order.totalAmount,
-        latestPaymentLog: order.paymentLogs[0] || null,
-        refunds: order.refunds
-      };
-    } catch (error) {
-      logger.error('Get payment status failed', { orderId, error: error.message });
-      throw error;
-    }
+    return order;
   }
 }
-
-export default new PaymentService();
