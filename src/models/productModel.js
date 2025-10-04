@@ -69,23 +69,53 @@ export async function findProductByPrintifyId(printifyProductId) {
   }
 }
 
-export async function findAllProducts(page = 1, limit = 10, search = '', category = '', inStock = null) {
+// In your product model file
+export async function findAllProducts(
+  page = 1, 
+  limit = 10, 
+  search = '', 
+  category = '', 
+  inStock = null, 
+  minPrice = null, 
+  maxPrice = null
+) {
   try {
     const skip = (page - 1) * limit;
     
+    // Build where clause with proper filtering
     const whereClause = {
       isPublished: true,
       AND: [
+        // Search filter
         search ? {
           OR: [
             { name: { contains: search, mode: 'insensitive' } },
-            { description: { contains: search, mode: 'insensitive' } }
+            { description: { contains: search, mode: 'insensitive' } },
+            { sku: { contains: search, mode: 'insensitive' } }
           ]
         } : {},
-        category && category !== 'All' ? { category: { equals: category, mode: 'insensitive' } } : {},
-        inStock !== null && inStock !== 'all' ? { inStock: inStock === 'true' } : {}
+        
+        // Category filter
+        category && category !== 'All' ? { 
+          category: { equals: category, mode: 'insensitive' } 
+        } : {},
+        
+        // Stock filter
+        inStock !== null && inStock !== 'all' ? { 
+          inStock: inStock === 'true' 
+        } : {},
+        
+        // Price range filter
+        {
+          AND: [
+            minPrice ? { price: { gte: parseFloat(minPrice) } } : {},
+            maxPrice ? { price: { lte: parseFloat(maxPrice) } } : {}
+          ]
+        }
       ].filter(condition => Object.keys(condition).length > 0)
     };
+
+    console.log('🔍 Database query where clause:', JSON.stringify(whereClause, null, 2));
 
     const [products, totalCount] = await Promise.all([
       prisma.product.findMany({
@@ -112,6 +142,7 @@ export async function findAllProducts(page = 1, limit = 10, search = '', categor
       prisma.product.count({ where: whereClause })
     ]);
 
+    console.log(`📊 Found ${products.length} products out of ${totalCount} total`);
 
     const totalPages = Math.ceil(totalCount / limit);
 
@@ -125,8 +156,8 @@ export async function findAllProducts(page = 1, limit = 10, search = '', categor
       limit: limit
     };
   } catch (error) {
-    console.error("Error finding all products:", error);
-    throw new Error("Database error occurred");
+    console.error("❌ Database error in findAllProducts:", error);
+    throw new Error("Database error occurred while fetching products");
   }
 }
 

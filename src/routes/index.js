@@ -11,6 +11,7 @@ import dashboardRoutes from "./dashboardRoutes.js";
 import contactRoutes from "./contactRoutes.js";
 import searchRoutes from "./searchRoutes.js";
 import couponRoutes from "./couponRoutes.js";
+import lookbookRoutes from "./lookbookRoutes.js";
 
 const router = express.Router();
 
@@ -27,5 +28,6 @@ router.use("/dashboard", dashboardRoutes);
 router.use("/contact", contactRoutes);
 router.use("/search", searchRoutes);
 router.use("/coupons", couponRoutes);
+router.use('/lookbook', lookbookRoutes);
 
 export default router;

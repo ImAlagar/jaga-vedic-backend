@@ -25,10 +25,26 @@ export const productQueryValidator = [
     .withMessage("Category must be a string with max 50 characters"),
   query("inStock")
     .optional()
-    .isBoolean()
-    .withMessage("inStock must be a boolean value"),
+    .isIn(['true', 'false', 'all'])
+    .withMessage("inStock must be 'true', 'false', or 'all'"),
   query("isPublished")
     .optional()
-    .isBoolean()
-    .withMessage("isPublished must be a boolean value")
+    .isIn(['true', 'false', 'all'])
+    .withMessage("isPublished must be 'true', 'false', or 'all'"),
+  query("minPrice")
+    .optional()
+    .isFloat({ min: 0 })
+    .withMessage("Min price must be a positive number"),
+  query("maxPrice")
+    .optional()
+    .isFloat({ min: 0 })
+    .withMessage("Max price must be a positive number"),
+  query("sortBy")
+    .optional()
+    .isIn(['name', 'price', 'createdAt', 'stock', 'updatedAt'])
+    .withMessage("Invalid sortBy value"),
+  query("sortOrder")
+    .optional()
+    .isIn(['asc', 'desc'])
+    .withMessage("sortOrder must be 'asc' or 'desc'")
 ];

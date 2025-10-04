@@ -7,7 +7,8 @@ import {
   getProductFilters,
   getProductVariants,
   getAllProductsAdmin,
-  debugProducts
+  debugProducts,
+  getSimilarProducts
 } from "../controllers/productController.js";
 import { 
   productSyncValidator, 
@@ -39,5 +40,7 @@ router.get("/filters", getProductFilters);
 router.get("/filter", filterProducts);
 
 router.get("/debug/info", debugProducts);
+
+router.get("/:productId/similar", getSimilarProducts);
 
 export default router;

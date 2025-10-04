@@ -2,6 +2,7 @@ import * as productService from "../services/productService.js";
 import { successResponse, errorResponse } from "../utils/responseHandler.js";
 import HttpStatus from "../constants/httpStatusCode.js";
 import { ProductVariantService } from "../services/productVariantService.js";
+import prisma from "../config/prisma.js";
 
 export async function syncProducts(req, res) {
   try {
@@ -25,18 +26,33 @@ export async function getAllProducts(req, res) {
     const limit = parseInt(req.query.limit) || 10;
     const search = req.query.search || '';
     const category = req.query.category || '';
-    const inStock = req.query.inStock !== undefined ? req.query.inStock === 'true' : null;
+    
+    // Handle string values for inStock
+    const inStock = req.query.inStock !== undefined 
+      ? req.query.inStock === 'true' ? true 
+        : req.query.inStock === 'false' ? false 
+        : null
+      : null;
 
-    const result = await productService.getAllProducts(page, limit, search, category, inStock);
+    const minPrice = req.query.minPrice ? parseFloat(req.query.minPrice) : null;
+    const maxPrice = req.query.maxPrice ? parseFloat(req.query.maxPrice) : null;
+
+    const result = await productService.getAllProducts(
+      page, 
+      limit, 
+      search, 
+      category, 
+      inStock,
+      minPrice,
+      maxPrice
+    );
 
     return successResponse(res, result, "Products fetched successfully", HttpStatus.OK);
   } catch (error) {
-    console.error("💥 Backend getAllProducts error:", error); // 🔥 ADD THIS LINE
+    console.error("💥 Backend getAllProducts error:", error);
     return errorResponse(res, error.message || "Internal server error", HttpStatus.BAD_REQUEST);
   }
 }
-
-
 
 export async function getProductById(req, res) {
   try {
@@ -144,7 +160,6 @@ export async function getProductFilters(req, res) {
   }
 }
 
-
 export async function debugProducts(req, res) {
   try {
     const { showUnpublished = 'false' } = req.query;
@@ -188,6 +203,54 @@ export async function debugProducts(req, res) {
       analysis: analysis
     }, "Debug information", HttpStatus.OK);
   } catch (error) {
+    return errorResponse(res, error.message, HttpStatus.BAD_REQUEST);
+  }
+}
+
+
+export async function getSimilarProducts(req, res) {
+  try {
+    const { productId } = req.params;
+    const limit = parseInt(req.query.limit) || 4;
+    
+    if (!productId || isNaN(productId)) {
+      return errorResponse(res, "Valid product ID is required", HttpStatus.BAD_REQUEST);
+    }
+
+    // Get current product to find similar ones - FIXED: use getProductById instead of findProductById
+    const currentProduct = await productService.getProductById(parseInt(productId));
+    if (!currentProduct) {
+      return errorResponse(res, "Product not found", HttpStatus.NOT_FOUND);
+    }
+
+    // Find similar products by category
+    const similarProducts = await prisma.product.findMany({
+      where: {
+        AND: [
+          { id: { not: parseInt(productId) } }, // Exclude current product
+          { category: currentProduct.category }, // Same category
+          { isPublished: true }, // Only published products
+          { inStock: true } // Only in-stock products
+        ]
+      },
+      select: {
+        id: true,
+        name: true,
+        description: true,
+        price: true,
+        images: true,
+        category: true,
+        inStock: true,
+        sku: true,
+        createdAt: true
+      },
+      take: limit,
+      orderBy: { createdAt: 'desc' }
+    });
+
+    return successResponse(res, similarProducts, "Similar products fetched successfully", HttpStatus.OK);
+  } catch (error) {
+    console.error("Get similar products error:", error);
     return errorResponse(res, error.message, HttpStatus.BAD_REQUEST);
   }
 }

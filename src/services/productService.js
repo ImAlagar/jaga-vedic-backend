@@ -156,17 +156,30 @@ function determinePublishingStatus(product) {
   return false;
 }
 
-
-
-export async function getAllProducts(page = 1, limit = 10, search = '', category = '', inStock = null) {
+export async function getAllProducts(
+  page = 1, 
+  limit = 10, 
+  search = '', 
+  category = '', 
+  inStock = null, 
+  minPrice = null, 
+  maxPrice = null
+) {
   try {
-    const result = await productModel.findAllProducts(page, limit, search, category, inStock);
+    const result = await productModel.findAllProducts(
+      page, 
+      limit, 
+      search, 
+      category, 
+      inStock, 
+      minPrice, 
+      maxPrice
+    );
     return result;
   } catch (error) {
     throw new Error(`Failed to fetch products: ${error.message}`);
   }
 }
-
 
 export async function getProductById(productId) {
   try {
@@ -235,6 +248,7 @@ export async function getFilteredProducts(filters, options) {
     }
   };
 }
+
 export async function getAvailableFilters() {
   const [categories, priceRange, stockCounts] = await Promise.all([
     prisma.product.findMany({
@@ -288,5 +302,44 @@ export async function getAllProductsAdmin(page = 1, limit = 10, search = '', cat
     return result;
   } catch (error) {
     throw new Error(`Failed to fetch products for admin: ${error.message}`);
+  }
+}
+
+
+export async function getSimilarProducts(productId, limit = 4) {
+  try {
+    const currentProduct = await productModel.findProductById(productId);
+    
+    if (!currentProduct) {
+      throw new Error('Product not found');
+    }
+
+    const similarProducts = await prisma.product.findMany({
+      where: {
+        AND: [
+          { id: { not: productId } },
+          { category: currentProduct.category },
+          { isPublished: true },
+          { inStock: true }
+        ]
+      },
+      select: {
+        id: true,
+        name: true,
+        description: true,
+        price: true,
+        images: true,
+        category: true,
+        inStock: true,
+        sku: true,
+        createdAt: true
+      },
+      take: limit,
+      orderBy: { createdAt: 'desc' }
+    });
+
+    return similarProducts;
+  } catch (error) {
+    throw new Error(`Failed to fetch similar products: ${error.message}`);
   }
 }

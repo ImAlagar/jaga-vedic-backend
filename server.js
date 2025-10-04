@@ -12,7 +12,6 @@ async function startServer() {
   try {
     // Connect to database
     await connectDB();
-    logger.info("✅ Database connected successfully");
     startPrintifySyncCron();
     logger.info("✅ products synced successfully");
     // Start HTTP server
