@@ -167,6 +167,7 @@ export async function getAllProducts(page = 1, limit = 10, search = '', category
   }
 }
 
+
 export async function getProductById(productId) {
   try {
     const product = await productModel.findProductById(productId);

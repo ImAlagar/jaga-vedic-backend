@@ -31,9 +31,12 @@ export async function getAllProducts(req, res) {
 
     return successResponse(res, result, "Products fetched successfully", HttpStatus.OK);
   } catch (error) {
-    return errorResponse(res, error.message, HttpStatus.BAD_REQUEST);
+    console.error("💥 Backend getAllProducts error:", error); // 🔥 ADD THIS LINE
+    return errorResponse(res, error.message || "Internal server error", HttpStatus.BAD_REQUEST);
   }
 }
+
+
 
 export async function getProductById(req, res) {
   try {
