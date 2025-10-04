@@ -17,12 +17,6 @@ export function successResponse(res, data = null, message = "Operation completed
 }
 
 export function errorResponse(res, error, status = HttpStatus.BAD_REQUEST) {
-    console.error('API Error:', {
-        message: error.message,
-        stack: error.stack,
-        timestamp: new Date().toISOString()
-    });
-
     // ALWAYS return the specific error message
     const message = error.message || error;
 

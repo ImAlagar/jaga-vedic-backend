@@ -14,7 +14,6 @@ app.set("trust proxy", 1);
 
 app.use(helmet());
 
-
 // Read origins from .env
 const allowedOrigins = process.env.ALLOWED_ORIGINS?.split(",") || [];
 
@@ -30,7 +29,6 @@ app.use(cors({
   credentials: true
 }));
 
-
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
@@ -41,16 +39,15 @@ app.use("/api/v1", routes);
 app.get("/health", (req, res) => {
     res.json({ 
         success: true,
-        message: "Service is healthy"
+        message: "Service is healthy",
+        timestamp: new Date().toISOString()
     });
 });
-
-
 
 // Request logging
 app.use(requestLogger);
 
-// Error handler (use logger instead of console)
+// Error handler
 app.use((err, req, res, next) => {
   logger.error(err.message, { stack: err.stack });
   res.status(500).json({ error: err.message || "Server Error" });

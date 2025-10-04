@@ -3,6 +3,7 @@ import app from "./app.js";
 import { connectDB, disconnectDB } from "./src/config/prisma.js";
 import logger from "./src/utils/logger.js";
 import { initSocket, getIO } from "./src/config/socket.js";
+import { startPrintifySyncCron } from "./src/cron/printifySyncCron.js";
 
 const PORT = process.env.PORT || 5000;
 
@@ -12,7 +13,8 @@ async function startServer() {
     // Connect to database
     await connectDB();
     logger.info("✅ Database connected successfully");
-
+    startPrintifySyncCron();
+    logger.info("✅ products synced successfully");
     // Start HTTP server
     const server = app.listen(PORT, () => {
       logger.info(`🚀 Server running on port ${PORT}`);

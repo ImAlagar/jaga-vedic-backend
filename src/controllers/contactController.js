@@ -12,6 +12,7 @@ export async function submitContact(req, res) {
       message,
       inquiryType = 'GENERAL',
       phone,
+      country, // 🔥 NEW FIELD - Added country
     } = req.body;
 
     const inquiryData = {
@@ -21,6 +22,7 @@ export async function submitContact(req, res) {
       message,
       inquiryType,
       phone,
+      country, // 🔥 NEW FIELD - Added country
     };
 
     const inquiry = await contactService.submitContactInquiry(inquiryData);
@@ -38,7 +40,6 @@ export async function submitContact(req, res) {
     return errorResponse(res, error.message, HttpStatus.BAD_REQUEST);
   }
 }
-
 export async function getAllInquiries(req, res) {
   try {
     const page = parseInt(req.query.page) || 1;

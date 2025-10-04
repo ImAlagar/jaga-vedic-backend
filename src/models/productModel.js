@@ -1,13 +1,16 @@
-// src/models/productModel.js
 import prisma from "../config/prisma.js";
 
 export async function upsertProduct(product) {
-  // Store variant information safely
+  const isPublished = determinePublishingStatus(product);
+  
+  // Store variant information with proper status
   const variants = product.variants ? product.variants.map(variant => ({
     id: variant.id,
     price: variant.price ? variant.price / 100 : 0,
     sku: variant.sku || '',
     isAvailable: variant.is_available !== undefined ? variant.is_available : true,
+    isEnabled: variant.is_enabled !== undefined ? variant.is_enabled : true,
+    isSelectedForPublishing: variant.is_selected_for_publishing || false,
     title: variant.title || `Variant ${variant.id}`
   })) : [];
 
@@ -23,6 +26,7 @@ export async function upsertProduct(product) {
       printifyVariants: variants,
       printifyBlueprintId: product.blueprint_id || null,
       printifyPrintProviderId: product.print_provider_id || null,
+      isPublished: isPublished,
       updatedAt: new Date(),
     },
     create: {
@@ -36,6 +40,7 @@ export async function upsertProduct(product) {
       printifyVariants: variants,
       printifyBlueprintId: product.blueprint_id || null,
       printifyPrintProviderId: product.print_provider_id || null,
+      isPublished: isPublished,
       createdAt: new Date(),
       updatedAt: new Date(),
     },
@@ -69,6 +74,7 @@ export async function findAllProducts(page = 1, limit = 10, search = '', categor
     const skip = (page - 1) * limit;
     
     const whereClause = {
+      isPublished: true,
       AND: [
         search ? {
           OR: [
@@ -76,8 +82,8 @@ export async function findAllProducts(page = 1, limit = 10, search = '', categor
             { description: { contains: search, mode: 'insensitive' } }
           ]
         } : {},
-        category ? { category: { equals: category, mode: 'insensitive' } } : {},
-        inStock !== null ? { inStock: inStock } : {}
+        category && category !== 'All' ? { category: { equals: category, mode: 'insensitive' } } : {},
+        inStock !== null && inStock !== 'all' ? { inStock: inStock === 'true' } : {}
       ].filter(condition => Object.keys(condition).length > 0)
     };
 
@@ -92,6 +98,68 @@ export async function findAllProducts(page = 1, limit = 10, search = '', categor
           images: true,
           category: true,
           inStock: true,
+          isPublished: true,
+          printifyProductId: true,
+          sku: true,
+          printifyVariants: true,
+          createdAt: true,
+          updatedAt: true
+        },
+        orderBy: { createdAt: 'desc' },
+        skip: skip,
+        take: limit
+      }),
+      prisma.product.count({ where: whereClause })
+    ]);
+
+
+    const totalPages = Math.ceil(totalCount / limit);
+
+    return {
+      products,
+      totalCount,
+      totalPages,
+      currentPage: page,
+      hasNext: page < totalPages,
+      hasPrev: page > 1,
+      limit: limit
+    };
+  } catch (error) {
+    console.error("Error finding all products:", error);
+    throw new Error("Database error occurred");
+  }
+}
+
+export async function findAllProductsAdmin(page = 1, limit = 10, search = '', category = '', inStock = null, isPublished = null) {
+  try {
+    const skip = (page - 1) * limit;
+    
+    const whereClause = {
+      AND: [
+        search ? {
+          OR: [
+            { name: { contains: search, mode: 'insensitive' } },
+            { description: { contains: search, mode: 'insensitive' } }
+          ]
+        } : {},
+        category ? { category: { equals: category, mode: 'insensitive' } } : {},
+        inStock !== null ? { inStock: inStock } : {},
+        isPublished !== null ? { isPublished: isPublished } : {}
+      ].filter(condition => Object.keys(condition).length > 0)
+    };
+
+    const [products, totalCount] = await Promise.all([
+      prisma.product.findMany({
+        where: whereClause,
+        select: {
+          id: true,
+          name: true,
+          description: true,
+          price: true,
+          images: true,
+          category: true,
+          inStock: true,
+          isPublished: true,
           printifyProductId: true,
           sku: true,
           printifyVariants: true,
@@ -114,9 +182,7 @@ export async function findAllProducts(page = 1, limit = 10, search = '', categor
       hasPrev: page > 1
     };
   } catch (error) {
-    console.error("Error finding all products:", error);
+    console.error("Error finding all products for admin:", error);
     throw new Error("Database error occurred");
   }
 }
-
-

@@ -33,7 +33,7 @@ model User {
   password          String
   phone             String?
   address           String?
-  stripeCustomerId  String?   @unique
+  razorpayCustomerId String?  @unique
   isActive          Boolean   @default(true)
   emailVerified     Boolean   @default(false)
   verificationToken String?   @unique
@@ -44,6 +44,7 @@ model User {
 
   orders            Order[]
   couponUsages      CouponUsage[]
+  paymentLogs       PaymentLog[]
 
   @@map("users")
 }
@@ -61,22 +62,23 @@ model Product {
   sku               String?
   category          String?
   inStock           Boolean   @default(true)
+  isPublished       Boolean   @default(false)
   
-  // 🔥 NEW: Printify-specific fields
-  printifyVariants          Json?     // Store all variants as JSON array
+  // Printify-specific fields
+  printifyVariants          Json?
   printifyBlueprintId       Int?
   printifyPrintProviderId   Int?
   
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
 
-  orders            OrderItem[]
+  orderItems        OrderItem[]
 
   @@map("products")
 }
 
 //
-// 🔹 Order Table
+// 🔹 Order Table (Razorpay Only)
 //
 model Order {
   id                  Int              @id @default(autoincrement())
@@ -84,32 +86,38 @@ model Order {
   totalAmount         Float
   paymentStatus       PaymentStatus    @default(PENDING)
   fulfillmentStatus   FulfillmentStatus @default(PLACED)
-  stripePaymentIntentId String?        @unique
-  stripeSessionId     String?          @unique
+  
+  // Razorpay fields
+  razorpayOrderId     String?          @unique
+  razorpayPaymentId   String?          @unique
+  
   shippingAddress     Json?
   createdAt           DateTime         @default(now())  
+  updatedAt           DateTime?        @updatedAt
 
-  // 🔥 Printify integration fields
+  // Printify integration fields
   printifyOrderId     String?          @unique
   orderImage          String?          // Custom design image
   orderNotes          String?          // Special instructions
   
-  // 🔥 NEW: Coupon fields
-  couponCode      String?
-  discountAmount  Float?   @default(0)
-  subtotalAmount  Float    // Amount before discount
-  couponId        Int?
+  // Coupon fields
+  couponCode          String?
+  discountAmount      Float?           @default(0)
+  subtotalAmount      Float            // Amount before discount
+  couponId            Int?
   
   // Relations
-  user    User       @relation(fields: [userId], references: [id], onDelete: Cascade)
-  items   OrderItem[]
+  user        User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  items       OrderItem[]
   couponUsage CouponUsage?
+  paymentLogs PaymentLog[]
+  refunds     Refund[]
 
   @@map("orders")
 }
 
 //
-// 🔹 OrderItem Table (Updated)
+// 🔹 OrderItem Table
 //
 model OrderItem {
   id                  Int     @id @default(autoincrement())
@@ -122,8 +130,8 @@ model OrderItem {
   printifyVariantId       String?
   printifyBlueprintId     Int?
   printifyPrintProviderId Int?
-  size                 String?  // Added size field
-  color                String?  // Added color field
+  size                 String?
+  color                String?
 
   order   Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
   product Product @relation(fields: [productId], references: [id])
@@ -133,36 +141,35 @@ model OrderItem {
 }
 
 //
-// 🔹 NEW: Coupon Code Table
+// 🔹 Coupon Code Table
 //
 model Coupon {
   id               Int       @id @default(autoincrement())
   code             String    @unique
   description      String?
   discountType     DiscountType @default(PERCENTAGE)
-  discountValue    Float     // Percentage (10.0) or Fixed amount (15.00)
+  discountValue    Float
   minOrderAmount   Float?    @default(0)
-  maxDiscountAmount Float?   // For percentage discounts only
-  usageLimit       Int?      // Total usage limit
+  maxDiscountAmount Float?
+  usageLimit       Int?
   usedCount        Int       @default(0)
   validFrom        DateTime  @default(now())
   validUntil       DateTime?
   isActive         Boolean   @default(true)
-  isSingleUse      Boolean   @default(false) // One-time use per user
+  isSingleUse      Boolean   @default(false)
   applicableTo     CouponApplicability @default(ALL_PRODUCTS)
-  categories       String[]  // For CATEGORY_SPECIFIC
-  products         Int[]     // For PRODUCT_SPECIFIC (product IDs)
+  categories       String[]
+  products         Int[]
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
 
-  // Relations
   couponUsages CouponUsage[]
 
   @@map("coupons")
 }
 
 //
-// 🔹 NEW: Coupon Usage Table (Track usage per user)
+// 🔹 Coupon Usage Table
 //
 model CouponUsage {
   id        Int      @id @default(autoincrement())
@@ -171,14 +178,52 @@ model CouponUsage {
   orderId   Int
   usedAt    DateTime @default(now())
 
-  // Relations
   coupon Coupon @relation(fields: [couponId], references: [id], onDelete: Cascade)
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
   order  Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
 
-  @@unique([couponId, userId]) // For single-use per user
-  @@unique([orderId]) // One coupon per order
+  @@unique([couponId, userId])
+  @@unique([orderId])
   @@map("coupon_usages")
+}
+
+//
+// 🔹 Payment Log Table
+//
+model PaymentLog {
+  id           Int      @id @default(autoincrement())
+  orderId      Int
+  paymentId    String   @unique
+  amount       Float
+  currency     String   @default("INR")
+  status       String   // CAPTURED, FAILED, REFUNDED
+  gateway      String   @default("RAZORPAY")
+  errorMessage String?
+  rawResponse  Json?
+  createdAt    DateTime @default(now())
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@map("payment_logs")
+  User User[]
+}
+
+//
+// 🔹 Refund Table
+//
+model Refund {
+  id          Int      @id @default(autoincrement())
+  orderId     Int
+  refundId    String   @unique
+  amount      Float
+  status      RefundStatus
+  reason      String?
+  processedAt DateTime
+  createdAt   DateTime @default(now())
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@map("refunds")
 }
 
 //
@@ -195,6 +240,7 @@ model ContactInquiry {
   status          InquiryStatus @default(PENDING)
   callbackTime    DateTime?
   adminNotes      String?
+  country         String?
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 
@@ -224,11 +270,10 @@ enum FulfillmentStatus {
   CANCELLED
 }
 
-enum PaymentMethod {
-  CARD
-  PAYPAL
-  APPLE_PAY
-  GOOGLE_PAY
+enum RefundStatus {
+  PENDING
+  PROCESSED
+  FAILED
 }
 
 enum InquiryType {
@@ -250,9 +295,6 @@ enum InquiryStatus {
   SPAM
 }
 
-//
-// 🔹 NEW: Coupon Enums
-//
 enum DiscountType {
   PERCENTAGE
   FIXED_AMOUNT

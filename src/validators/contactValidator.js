@@ -42,6 +42,12 @@ export const contactValidator = [
     .isMobilePhone()
     .withMessage('Please provide a valid phone number'),
   
+  body('country')
+    .optional()
+    .trim()
+    .isLength({ min: 2, max: 100 })
+    .withMessage('Country must be between 2 and 100 characters'),
+  
   body('scheduleCallback')
     .optional()
     .isBoolean()

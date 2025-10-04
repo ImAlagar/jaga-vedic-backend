@@ -1,4 +1,3 @@
-// src/controllers/productController.js
 import * as productService from "../services/productService.js";
 import { successResponse, errorResponse } from "../utils/responseHandler.js";
 import HttpStatus from "../constants/httpStatusCode.js";
@@ -7,17 +6,21 @@ import { ProductVariantService } from "../services/productVariantService.js";
 export async function syncProducts(req, res) {
   try {
     const { shopId } = req.params;
+    
+    // Set longer timeout for sync endpoint
+    req.setTimeout(300000); // 5 minutes timeout
+    
     const result = await productService.syncProducts(shopId);
 
     return successResponse(res, result, "Products synced", HttpStatus.OK);
   } catch (error) {
+    console.error("Sync products error:", error);
     return errorResponse(res, error.message, HttpStatus.BAD_REQUEST);
   }
 }
 
 export async function getAllProducts(req, res) {
   try {
-    // Get query parameters with defaults
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 10;
     const search = req.query.search || '';
@@ -32,7 +35,7 @@ export async function getAllProducts(req, res) {
   }
 }
 
-export async function   getProductById(req, res) {
+export async function getProductById(req, res) {
   try {
     const { id } = req.params;
     
@@ -51,8 +54,23 @@ export async function   getProductById(req, res) {
   }
 }
 
+export async function getAllProductsAdmin(req, res) {
+  try {
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+    const search = req.query.search || '';
+    const category = req.query.category || '';
+    const inStock = req.query.inStock !== undefined ? req.query.inStock === 'true' : null;
+    const isPublished = req.query.isPublished !== undefined ? req.query.isPublished === 'true' : null;
 
-// src/controllers/productController.js - Add this function
+    const result = await productService.getAllProductsAdmin(page, limit, search, category, inStock, isPublished);
+
+    return successResponse(res, result, "Products fetched successfully for admin", HttpStatus.OK);
+  } catch (error) {
+    return errorResponse(res, error.message, HttpStatus.BAD_REQUEST);
+  }
+}
+
 export async function getProductVariants(req, res) {
   try {
     const { productId } = req.params;
@@ -72,7 +90,6 @@ export async function getProductVariants(req, res) {
     return errorResponse(res, error.message, HttpStatus.BAD_REQUEST);
   }
 }
-
 
 export async function filterProducts(req, res) {
   try {
@@ -121,5 +138,53 @@ export async function getProductFilters(req, res) {
     return successResponse(res, filters, "Filters retrieved successfully", HttpStatus.OK);
   } catch (error) {
     return errorResponse(res, error.message, HttpStatus.INTERNAL_SERVER_ERROR);
+  }
+}
+
+
+export async function debugProducts(req, res) {
+  try {
+    const { showUnpublished = 'false' } = req.query;
+    
+    const products = await prisma.product.findMany({
+      where: showUnpublished === 'true' ? {} : { isPublished: true },
+      select: {
+        id: true,
+        name: true,
+        isPublished: true,
+        printifyProductId: true,
+        category: true,
+        printifyVariants: true,
+        createdAt: true
+      },
+      orderBy: { createdAt: 'desc' }
+    });
+
+    // Analyze variants data
+    const analysis = products.map(product => {
+      const variants = product.printifyVariants || [];
+      const publishedVariants = variants.filter(v => v.is_selected_for_publishing === true);
+      
+      return {
+        id: product.id,
+        name: product.name,
+        isPublished: product.isPublished,
+        totalVariants: variants.length,
+        publishedVariants: publishedVariants.length,
+        variantData: variants.map(v => ({
+          id: v.id,
+          is_selected_for_publishing: v.is_selected_for_publishing
+        }))
+      };
+    });
+
+    return successResponse(res, {
+      totalProducts: products.length,
+      publishedProducts: products.filter(p => p.isPublished).length,
+      unpublishedProducts: products.filter(p => !p.isPublished).length,
+      analysis: analysis
+    }, "Debug information", HttpStatus.OK);
+  } catch (error) {
+    return errorResponse(res, error.message, HttpStatus.BAD_REQUEST);
   }
 }

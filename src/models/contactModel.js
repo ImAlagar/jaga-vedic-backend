@@ -11,6 +11,7 @@ export async function createContactInquiry(data) {
         message: data.message,
         inquiryType: data.inquiryType,
         phone: data.phone,
+        country: data.country, // 🔥 NEW FIELD - Added country
         callbackTime: data.callbackTime,
         status: 'PENDING'
       },
@@ -102,4 +103,4 @@ export async function getInquiryStats() {
     console.error("Error fetching inquiry stats:", error);
     throw new Error("Database error occurred");
   }
-}   
+}
