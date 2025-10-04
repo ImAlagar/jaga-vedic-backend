@@ -53,7 +53,7 @@ export async function getUserOrders(req, res) {
   }
 }
 
-export async function getAllOrders(req, res) {
+export async function   getAllOrders(req, res) {
   try {
     const orders = await orderService.getAllOrders();
     
@@ -89,8 +89,6 @@ export async function updateOrderStatus(req, res) {
     return errorResponse(res, error.message, HttpStatus.BAD_REQUEST);
   }
 }
-
-
 
 
 // src/controllers/orderController.js - Add this function
@@ -129,7 +127,7 @@ export async function getOrderStats(req, res) {
   }
 }
 
-
+// In orderController.js - Update these functions to use class methods
 export async function filterOrders(req, res) {
   try {
     const {
@@ -189,11 +187,74 @@ export async function filterOrders(req, res) {
   }
 }
 
+
+
 export async function getOrderFilters(req, res) {
   try {
     const filters = await orderService.getAvailableFilters();
     return successResponse(res, filters, "Order filters retrieved successfully", HttpStatus.OK);
   } catch (error) {
     return errorResponse(res, error.message, HttpStatus.INTERNAL_SERVER_ERROR);
+  }
+}
+
+// src/controllers/orderController.js - Add this function
+export async function getOrderById(req, res) {
+  try {
+    const { orderId } = req.params;
+    const userId = req.user.id;
+    const userRole = req.user.role;
+    
+    if (!orderId || isNaN(orderId)) {
+      return errorResponse(res, "Valid order ID is required", HttpStatus.BAD_REQUEST);
+    }
+
+    const order = await orderService.getOrderById(parseInt(orderId));
+    
+    if (!order) {
+      return errorResponse(res, "Order not found", HttpStatus.NOT_FOUND);
+    }
+
+    // ✅ FIX: Allow admins to access any order, users only their own
+    const isAdmin = userRole === 'admin';
+    const isOrderOwner = order.userId === userId;
+    
+    if (!isAdmin && !isOrderOwner) {
+      return errorResponse(res, "Access denied", HttpStatus.FORBIDDEN);
+    }
+
+    return successResponse(
+      res, 
+      OrderResponseDto.fromOrder(order), 
+      'Order fetched successfully'
+    );
+  } catch (error) {
+    return errorResponse(res, error.message, HttpStatus.BAD_REQUEST);
+  }
+}
+
+
+// src/controllers/orderController.js - Add this function
+export async function getAdminOrderById(req, res) {
+  try {
+    const { orderId } = req.params;
+    
+    if (!orderId || isNaN(orderId)) {
+      return errorResponse(res, "Valid order ID is required", HttpStatus.BAD_REQUEST);
+    }
+
+    const order = await orderService.getOrderById(parseInt(orderId));
+    
+    if (!order) {
+      return errorResponse(res, "Order not found", HttpStatus.NOT_FOUND);
+    }
+
+    return successResponse(
+      res, 
+      OrderResponseDto.fromOrder(order), 
+      'Order fetched successfully'
+    );
+  } catch (error) {
+    return errorResponse(res, error.message, HttpStatus.BAD_REQUEST);
   }
 }

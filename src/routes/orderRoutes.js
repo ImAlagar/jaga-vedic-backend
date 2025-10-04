@@ -6,9 +6,10 @@ import {
   getAllOrders, 
   updateOrderStatus,
   retryPrintifyForwarding,
-  getOrderStats,  // Add this import
+  getOrderStats,
   getOrderFilters,
-  filterOrders
+  filterOrders,
+  getOrderById
 } from "../controllers/orderController.js";
 import { verifyUserToken } from "../middlewares/authToken.js";
 import { verifyAdminToken } from "../middlewares/authToken.js";
@@ -17,17 +18,19 @@ import { orderValidators } from "../validators/orderValidator.js";
 
 const router = express.Router();
 
-// User routes
+// 👇 USER ROUTES - Must come FIRST
 router.post("/", verifyUserToken, orderValidators.createOrder, validateRequest, createOrder);
 router.get("/my-orders", verifyUserToken, getUserOrders);
 
-router.get("/filters", verifyAdminToken, getOrderFilters);     // ADD THIS
-router.get("/filter", verifyAdminToken, filterOrders);  
-
-// Admin routes
+// 👇 ADMIN ROUTES - Must come AFTER user-specific routes
 router.get("/", verifyAdminToken, getAllOrders);
-router.get("/stats", verifyAdminToken, getOrderStats); // Add this route
+router.get("/filters", verifyAdminToken, getOrderFilters);
+router.get("/filter", verifyAdminToken, filterOrders);
+router.get("/stats", verifyAdminToken, getOrderStats);
 router.patch("/:orderId/status", verifyAdminToken, orderValidators.updateStatus, validateRequest, updateOrderStatus);
 router.post("/:orderId/retry-printify", verifyAdminToken, retryPrintifyForwarding);
+
+// 👇 USER ORDER DETAILS - Must come LAST (most specific route)
+router.get("/:orderId", verifyUserToken, getOrderById);
 
 export default router;

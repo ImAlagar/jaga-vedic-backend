@@ -28,7 +28,6 @@ export async function findUserById(userId) {
         emailVerified: true,
         createdAt: true,
         updatedAt: true,
-        stripeCustomerId: true
       }
     });
     return user;
@@ -159,7 +158,6 @@ export async function findUserByIdWithOrders(id) {
         emailVerified: true,
         createdAt: true,
         updatedAt: true,
-        stripeCustomerId: true,
         orders: {
           include: {
             items: {

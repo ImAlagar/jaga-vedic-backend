@@ -311,89 +311,189 @@ async getOrderStats() {
     throw new Error('Failed to fetch order statistics');
   }
 }
-}
 
-
-export async function getFilteredOrders(filters, options) {
-  const { page, limit, sortBy, sortOrder } = options;
-  const offset = (page - 1) * limit;
-
-  const [orders, total] = await Promise.all([
-    prisma.order.findMany({
-      where: filters,
-      skip: offset,
-      take: limit,
-      orderBy: { [sortBy]: sortOrder },
+// In your OrderService class - Add this method
+async getOrderById(orderId) {
+  try {
+    const order = await prisma.order.findUnique({
+      where: { id: orderId },
       include: {
         user: {
-          select: {
-            id: true,
-            name: true,
-            email: true
-          }
+          select: { 
+            id: true, 
+            name: true, 
+            email: true 
+          },
         },
         items: {
           include: {
             product: {
-              select: {
-                name: true,
-                price: true,
-                images: true
+              select: { 
+                id: true, 
+                name: true, 
+                price: true, 
+                images: true,
+                printifyProductId: true
+              },
+            },
+          },
+        },
+      },
+    });
+
+    if (!order) {
+      throw new Error("Order not found");
+    }
+
+    return order;
+  } catch (error) {
+    console.error('Error in getOrderById:', error);
+    throw error;
+  }
+}
+
+// In your OrderService class - Add these methods
+async getAvailableFilters() {
+  try {
+    const [statusCounts, paymentStatusCounts, dateRange] = await Promise.all([
+      prisma.order.groupBy({
+        by: ['fulfillmentStatus'],
+        _count: {
+          id: true
+        }
+      }),
+      prisma.order.groupBy({
+        by: ['paymentStatus'],
+        _count: {
+          id: true
+        }
+      }),
+      prisma.order.aggregate({
+        _min: { createdAt: true },
+        _max: { createdAt: true }
+      })
+    ]);
+
+    return {
+      statuses: statusCounts.map(s => ({
+        value: s.fulfillmentStatus,
+        label: s.fulfillmentStatus.charAt(0) + s.fulfillmentStatus.slice(1).toLowerCase(),
+        count: s._count.id
+      })),
+      paymentStatuses: paymentStatusCounts.map(p => ({
+        value: p.paymentStatus,
+        label: p.paymentStatus.charAt(0) + p.paymentStatus.slice(1).toLowerCase(),
+        count: p._count.id
+      })),
+      dateRange: {
+        min: dateRange._min.createdAt,
+        max: dateRange._max.createdAt
+      }
+    };
+  } catch (error) {
+    console.error('Error in getAvailableFilters:', error);
+    throw error;
+  }
+}
+
+async getFilteredOrders(filters, options) {
+  try {
+    const { page, limit, sortBy, sortOrder } = options;
+    const offset = (page - 1) * limit;
+
+    const [orders, total] = await Promise.all([
+      prisma.order.findMany({
+        where: filters,
+        skip: offset,
+        take: limit,
+        orderBy: { [sortBy]: sortOrder },
+        include: {
+          user: {
+            select: {
+              id: true,
+              name: true,
+              email: true
+            }
+          },
+          items: {
+            include: {
+              product: {
+                select: {
+                  name: true,
+                  price: true,
+                  images: true
+                }
               }
             }
           }
         }
-      }
-    }),
-    prisma.order.count({ where: filters })
-  ]);
+      }),
+      prisma.order.count({ where: filters })
+    ]);
 
-  return {
-    data: orders,
-    meta: {
-      total,
-      page,
-      totalPages: Math.ceil(total / limit),
-      hasNext: page < Math.ceil(total / limit),
-      hasPrev: page > 1
-    }
-  };
+    return {
+      data: orders,
+      meta: {
+        total,
+        page,
+        totalPages: Math.ceil(total / limit),
+        hasNext: page < Math.ceil(total / limit),
+        hasPrev: page > 1
+      }
+    };
+  } catch (error) {
+    console.error('Error in getFilteredOrders:', error);
+    throw error;
+  }
 }
 
-export async function getAvailableFilters() {
-  const [statusCounts, paymentStatusCounts, dateRange] = await Promise.all([
-    prisma.order.groupBy({
-      by: ['fulfillmentStatus'],
-      _count: {
-        id: true
-      }
-    }),
-    prisma.order.groupBy({
-      by: ['paymentStatus'],
-      _count: {
-        id: true
-      }
-    }),
-    prisma.order.aggregate({
-      _min: { createdAt: true },
-      _max: { createdAt: true }
-    })
-  ]);
+// In your OrderService class - Add these methods
+async getAvailableFilters() {
+  try {
+    const [statusCounts, paymentStatusCounts, dateRange] = await Promise.all([
+      prisma.order.groupBy({
+        by: ['fulfillmentStatus'],
+        _count: {
+          id: true
+        }
+      }),
+      prisma.order.groupBy({
+        by: ['paymentStatus'],
+        _count: {
+          id: true
+        }
+      }),
+      prisma.order.aggregate({
+        _min: { createdAt: true },
+        _max: { createdAt: true }
+      })
+    ]);
 
-  return {
-    statuses: statusCounts.map(s => ({
-      value: s.fulfillmentStatus,
-      label: s.fulfillmentStatus.charAt(0) + s.fulfillmentStatus.slice(1).toLowerCase(),
-      count: s._count.id
-    })),
-    paymentStatuses: paymentStatusCounts.map(p => ({
-      value: p.paymentStatus,
-      label: p.paymentStatus.charAt(0) + p.paymentStatus.slice(1).toLowerCase(),
-      count: p._count.id
-    })),
-    dateRange: {
-      min: dateRange._min.createdAt,
-      max: dateRange._max.createdAt
-    }
-  };
+    return {
+      statuses: statusCounts.map(s => ({
+        value: s.fulfillmentStatus,
+        label: s.fulfillmentStatus.charAt(0) + s.fulfillmentStatus.slice(1).toLowerCase(),
+        count: s._count.id
+      })),
+      paymentStatuses: paymentStatusCounts.map(p => ({
+        value: p.paymentStatus,
+        label: p.paymentStatus.charAt(0) + p.paymentStatus.slice(1).toLowerCase(),
+        count: p._count.id
+      })),
+      dateRange: {
+        min: dateRange._min.createdAt,
+        max: dateRange._max.createdAt
+      }
+    };
+  } catch (error) {
+    console.error('Error in getAvailableFilters:', error);
+    throw error;
+  }
 }
+
+
+
+}
+
+
+
