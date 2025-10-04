@@ -5,20 +5,20 @@ import { successResponse, errorResponse } from "../utils/responseHandler.js";
 
 export async function register(req, res) {
   try {
-    const { name, email, phone, password } = req.body;
-    const result = await userService.registerUser(name, email, phone, password);
+    const { name, email, password, phone, address } = req.body;
+    const result = await userService.registerUser(name, email, password, phone, address);
     
     return successResponse(
       res, 
       result, 
-      result.message || "User registered successfully", 
+      "User registered successfully", 
       HttpStatus.CREATED
     );
   } catch (error) {
-    // Use the specific error message from userService
     return errorResponse(res, error, HttpStatus.BAD_REQUEST);
   }
 }
+
 
 export async function login(req, res) {
   try {
