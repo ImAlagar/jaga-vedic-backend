@@ -134,112 +134,80 @@ export async function updateUserProfile(userId, updateData) {
 }
 
 
+
 export async function forgotPassword(email) {
-    try {
-        
-        const user = await userModel.findUserByEmail(email.toLowerCase());
-        
-        // Security: Always return same message
-        const successResponse = { 
-            success: true,
-            message: "If the email exists, a password reset link has been sent" 
-        };
-
-        if (!user || !user.isActive) {
-            return successResponse;
-        }
-
-        // Generate secure token
-        const token = crypto.randomBytes(32).toString('hex');
-        const expiry = new Date(Date.now() + 15 * 60 * 1000); // 15 minutes
-
-
-        // CRITICAL: AWAIT the database update
-        await userModel.updateUser(
-            { id: user.id },
-            { 
-                resetToken: token, 
-                resetTokenExpiry: expiry,
-                updatedAt: new Date()
-            }
-        );
-
-        const resetUrl = `${process.env.CLIENT_URL}/reset-password?token=${token}`;
-
-        try {
-          sendMail(
-            user.email,
-            "Password Reset Request - Agumiya Collections",
-            getPasswordResetEmail(resetUrl, user.name)
-          ).catch(err => console.error('Email failed:', err.message));
-
-          // 👇 Return immediately (frontend won’t timeout)
-          return successResponse;
-        } catch (error) {
-          console.error('❌ Forgot password error:', error);
-          return successResponse;
-        }
-
-        return successResponse;
-
-    } catch (error) {
-        console.error('❌ Forgot password error:', error);
-        // Return success even on error for security
-        return { 
-            success: true,
-            message: "If the email exists, a password reset link has been sent" 
-        };
+  try {
+    const user = await userModel.findUserByEmail(email.toLowerCase());
+    if (!user) {
+      // Don't reveal whether email exists for security
+      return { message: "If the email exists, a password reset link has been sent" };
     }
+
+    if (!user.isActive) {
+      throw new Error("Your account has been deactivated. Please contact support.");
+    }
+
+    const token = crypto.randomBytes(32).toString('hex');
+    const expiry = new Date(Date.now() + 15 * 60 * 1000); // 15 minutes
+
+    await userModel.updateUser(
+      { id: user.id },
+      { resetToken: token, resetTokenExpiry: expiry }
+    );
+
+    const resetUrl = `${process.env.CLIENT_URL}/reset-password?token=${token}`;
+
+    await sendMail(
+      email,
+      "Password Reset Request",
+      getPasswordResetEmail(resetUrl, user.name)
+    );
+
+    return { message: "If the email exists, a password reset link has been sent" };
+  } catch (error) {
+    throw new Error(`Password reset request failed: ${error.message}`);
+  }
 }
 
 export async function resetPassword(token, newPassword) {
-    try {
-        if (!token || token.length !== 64) {
-            throw new Error("Invalid reset token");
-        }
-
-        const user = await userModel.findUserByResetToken(token);
-        if (!user) {
-            throw new Error("Invalid or expired reset token");
-        }
-
-        // Enhanced password validation
-        if (!newPassword || newPassword.length < 8) {
-            throw new Error("Password must be at least 8 characters long");
-        }
-
-        const hashedPassword = await bcrypt.hash(newPassword, 12);
-        
-        // Update user password
-        await userModel.updateUser(
-            { id: user.id },
-            { 
-                password: hashedPassword, 
-                resetToken: null, 
-                resetTokenExpiry: null 
-            }
-        );
-
-
-        // Send success email
-        try {
-            await sendMail(
-                user.email,
-                "Password Reset Successful - Tech Buddyzz",
-                getPasswordResetSuccessEmail(user.name)
-            );
-        } catch (emailError) {
-            console.error('❌ Success email failed (password was still reset):', emailError.message);
-        }
-
-        return { 
-            success: true,
-            message: "Password has been reset successfully" 
-        };
-    } catch (error) {
-        throw new Error(`Password reset failed: ${error.message}`);
+  try {
+    if (!token || token.length !== 64) {
+      throw new Error("Invalid reset token");
     }
+
+    const user = await userModel.findUserByResetToken(token);
+    if (!user) {
+      throw new Error("Invalid or expired reset token");
+    }
+
+    const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/;
+    if (!passwordRegex.test(newPassword)) {
+      throw new Error("Password must be at least 8 characters with uppercase, lowercase, number, and special character");
+    }
+
+    const hashedPassword = await bcrypt.hash(newPassword, 12);
+    
+    await userModel.updateUser(
+      { id: user.id },
+      { 
+        password: hashedPassword, 
+        resetToken: null, 
+        resetTokenExpiry: null 
+      }
+    );
+
+    await sendMail(
+      user.email,
+      "Password Reset Successful",
+      getPasswordResetSuccessEmail(user.name)
+    );
+
+    return { message: "Password has been reset successfully" };
+  } catch (error) {
+    throw new Error(`Password reset failed: ${error.message}`);
+  }
 }
+
 // Admin services
 export async function getAllUsers(page = 1, limit = 10, search = '') {
   try {
