@@ -79,6 +79,7 @@ model Product {
 
 //
 // 🔹 Order Table (Razorpay Only)
+//
 model Order {
   id                  Int              @id @default(autoincrement())
   userId              Int
@@ -96,7 +97,6 @@ model Order {
 
   // Printify integration fields
   printifyOrderId     String?          @unique
-  printifyExternalId  String?          @unique  // ADD THIS LINE
   orderImage          String?          // Custom design image
   orderNotes          String?          // Special instructions
   
@@ -105,9 +105,6 @@ model Order {
   discountAmount      Float?           @default(0)
   subtotalAmount      Float            // Amount before discount
   couponId            Int?
-  
-  // Error logging
-  errorLog            String?          // ADD THIS TOO
   
   // Relations
   user        User       @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -118,7 +115,6 @@ model Order {
 
   @@map("orders")
 }
-
 
 // 🔹 OrderItem Table
 //
