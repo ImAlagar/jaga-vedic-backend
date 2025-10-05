@@ -267,3 +267,28 @@ export async function getOrdersThisMonth() {
     return 0;
   }
 }
+
+// Add this function to your existing userModel.js
+export async function findRecentResetToken(userId) {
+  try {
+    const user = await prisma.user.findFirst({
+      where: {
+        id: parseInt(userId),
+        resetToken: { not: null },
+        resetTokenExpiry: { gt: new Date() },
+        updatedAt: { 
+          gte: new Date(Date.now() - 5 * 60 * 1000) // Last 5 minutes
+        }
+      },
+      select: {
+        resetToken: true,
+        updatedAt: true
+      }
+    });
+    
+    return user;
+  } catch (error) {
+    console.error('Error finding recent reset token:', error);
+    return null;
+  }
+}

@@ -110,7 +110,6 @@ export async function resetPassword(req, res) {
     return errorResponse(res, error, HttpStatus.BAD_REQUEST);
   }
 }
-
 // Admin controllers
 export async function getUsers(req, res) {
   try {
