@@ -6,8 +6,24 @@ import crypto from "crypto";
 import { sendMail } from "../utils/mailer.js";
 import { getWelcomeEmail, getPasswordResetEmail, getPasswordResetSuccessEmail } from "../utils/emailTemplates.js";
 
+// Debug function to check environment
+function debugEmailConfig() {
+  console.log('🔍 EMAIL CONFIGURATION DEBUG:');
+  console.log('NODE_ENV:', process.env.NODE_ENV);
+  console.log('SMTP_HOST:', process.env.SMTP_HOST ? '✅ Set' : '❌ Missing');
+  console.log('SMTP_PORT:', process.env.SMTP_PORT ? '✅ Set' : '❌ Missing');
+  console.log('SMTP_USER:', process.env.SMTP_USER ? '✅ Set' : '❌ Missing');
+  console.log('SMTP_PASS:', process.env.SMTP_PASS ? '✅ Set' : '❌ Missing');
+  console.log('CLIENT_URL:', process.env.CLIENT_URL ? '✅ Set' : '❌ Missing');
+  console.log('JWT_SECRET:', process.env.JWT_SECRET ? '✅ Set' : '❌ Missing');
+}
+
+
 export async function registerUser(name, email, password, phone) {
   try {
+
+    debugEmailConfig();
+
     // Validate email format
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(email)) {
@@ -137,35 +153,70 @@ export async function updateUserProfile(userId, updateData) {
 
 export async function forgotPassword(email) {
   try {
+    console.log(`🔍 Forgot password requested for: ${email}`);
+    
     const user = await userModel.findUserByEmail(email.toLowerCase());
-    if (!user) {
-      // Don't reveal whether email exists for security
-      return { message: "If the email exists, a password reset link has been sent" };
-    }
+    
+    // Return success immediately regardless of whether user exists
+    const successResponse = { 
+      message: "If the email exists, a password reset link has been sent" 
+    };
 
-    if (!user.isActive) {
-      throw new Error("Your account has been deactivated. Please contact support.");
+    // If user doesn't exist or is inactive, still return success for security
+    if (!user || !user.isActive) {
+      console.log(`ℹ️  User not found or inactive: ${email}`);
+      return successResponse;
     }
 
     const token = crypto.randomBytes(32).toString('hex');
     const expiry = new Date(Date.now() + 15 * 60 * 1000); // 15 minutes
 
-    await userModel.updateUser(
+    console.log(`📝 Generating reset token for user: ${user.email}`);
+
+    // Update user with reset token (non-blocking)
+    userModel.updateUser(
       { id: user.id },
-      { resetToken: token, resetTokenExpiry: expiry }
-    );
+      { 
+        resetToken: token, 
+        resetTokenExpiry: expiry,
+        updatedAt: new Date()
+      }
+    )
+    .then(() => {
+      console.log(`✅ Reset token saved for user: ${user.email}`);
+    })
+    .catch(error => {
+      console.error('❌ Failed to update user reset token:', error);
+    });
 
     const resetUrl = `${process.env.CLIENT_URL}/reset-password?token=${token}`;
+    console.log(`🔗 Reset URL generated: ${resetUrl}`);
 
-    await sendMail(
-      email,
+    // Send email ASYNCHRONOUSLY with enhanced logging
+    sendMail(
+      user.email,
       "Password Reset Request",
       getPasswordResetEmail(resetUrl, user.name)
-    );
+    )
+    .then(() => {
+      console.log(`✅ Password reset email sent to: ${user.email}`);
+    })
+    .catch(error => {
+      console.error('❌ Password reset email failed:', {
+        email: user.email,
+        error: error.message,
+        timestamp: new Date().toISOString()
+      });
+    });
 
-    return { message: "If the email exists, a password reset link has been sent" };
+    return successResponse;
+
   } catch (error) {
-    throw new Error(`Password reset request failed: ${error.message}`);
+    console.error('❌ Forgot password error:', error);
+    // Still return success for security even if there's an error
+    return { 
+      message: "If the email exists, a password reset link has been sent" 
+    };
   }
 }
 
@@ -180,9 +231,9 @@ export async function resetPassword(token, newPassword) {
       throw new Error("Invalid or expired reset token");
     }
 
-    const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/;
-    if (!passwordRegex.test(newPassword)) {
-      throw new Error("Password must be at least 8 characters with uppercase, lowercase, number, and special character");
+    // Basic password validation
+    if (!newPassword || newPassword.length < 6) {
+      throw new Error("Password must be at least 6 characters long");
     }
 
     const hashedPassword = await bcrypt.hash(newPassword, 12);
@@ -196,11 +247,20 @@ export async function resetPassword(token, newPassword) {
       }
     );
 
-    await sendMail(
+    console.log(`✅ Password reset successful for user: ${user.email}`);
+
+    // Send success email asynchronously
+    sendMail(
       user.email,
       "Password Reset Successful",
       getPasswordResetSuccessEmail(user.name)
-    );
+    )
+    .then(() => {
+      console.log(`✅ Password reset success email sent to: ${user.email}`);
+    })
+    .catch(error => {
+      console.error('❌ Success email failed:', error);
+    });
 
     return { message: "Password has been reset successfully" };
   } catch (error) {
@@ -231,6 +291,7 @@ export async function toggleUserActiveStatus(userId, isActive) {
     throw new Error(`Failed to update user status: ${error.message}`);
   }
 }
+
 
 
 export async function getUserById(userId, includeOrders = false) {

@@ -82,7 +82,12 @@ export async function updateProfile(req, res) {
 export async function forgotPassword(req, res) {
   try {
     const { email } = req.body;
+    
+    console.log(`🔑 Forgot password request for: ${email}`);
+    
     const result = await userService.forgotPassword(email);
+    
+    console.log(`✅ Forgot password processed for: ${email}`);
     
     return successResponse(
       res, 
@@ -91,6 +96,7 @@ export async function forgotPassword(req, res) {
       HttpStatus.OK
     );
   } catch (error) {
+    console.error(`❌ Forgot password failed for: ${req.body.email}`, error);
     return errorResponse(res, error, HttpStatus.BAD_REQUEST);
   }
 }
@@ -98,7 +104,12 @@ export async function forgotPassword(req, res) {
 export async function resetPassword(req, res) {
   try {
     const { token, newPassword } = req.body;
+    
+    console.log(`🔄 Password reset attempt with token`);
+    
     const result = await userService.resetPassword(token, newPassword);
+    
+    console.log(`✅ Password reset successful`);
     
     return successResponse(
       res, 
@@ -107,9 +118,12 @@ export async function resetPassword(req, res) {
       HttpStatus.OK
     );
   } catch (error) {
+    console.error(`❌ Password reset failed`, error);
     return errorResponse(res, error, HttpStatus.BAD_REQUEST);
   }
 }
+
+
 // Admin controllers
 export async function getUsers(req, res) {
   try {
