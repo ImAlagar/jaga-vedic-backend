@@ -6,47 +6,67 @@ import crypto from 'crypto';
 
 const paymentService = new PaymentService();
 
-export async function createPaymentOrder(req, res) {
-  try {
-    const { orderId } = req.body;
-    const userId = req.user.id;
+// 🔥 OPTIMIZED: Add timeout wrapper
+const withTimeout = (fn, timeoutMs = 10000) => {
+  return async (req, res) => {
+    const timeout = new Promise((_, reject) => 
+      setTimeout(() => reject(new Error(`Request timeout after ${timeoutMs}ms`)), timeoutMs)
+    );
 
-    if (!orderId) {
-      return errorResponse(res, "Order ID is required", HttpStatus.BAD_REQUEST);
+    try {
+      const result = await Promise.race([fn(req, res), timeout]);
+      return result;
+    } catch (error) {
+      if (error.message.includes('timeout')) {
+        return errorResponse(res, "Request timeout, please try again", HttpStatus.REQUEST_TIMEOUT);
+      }
+      throw error;
     }
+  };
+};
 
-    const paymentOrder = await paymentService.createRazorpayOrder(orderId, userId);
-    return successResponse(res, paymentOrder, "Payment order created successfully");
-  } catch (error) {
-    return errorResponse(res, error.message, HttpStatus.BAD_REQUEST);
+export const createPaymentOrder = withTimeout(async (req, res) => {
+  const { orderId } = req.body;
+  const userId = req.user.id;
+
+  if (!orderId) {
+    return errorResponse(res, "Order ID is required", HttpStatus.BAD_REQUEST);
   }
-}
 
-export async function verifyPayment(req, res) {
-  try {
-    const { razorpay_payment_id, razorpay_order_id, razorpay_signature, orderId } = req.body;
-    const userId = req.user.id;
-
-    const verification = await paymentService.verifyRazorpayPayment({
-      razorpay_payment_id,
-      razorpay_order_id,
-      razorpay_signature,
-      orderId
-    }, userId);
-
-    return successResponse(res, verification, "Payment verified successfully");
-  } catch (error) {
-    return errorResponse(res, error.message, HttpStatus.BAD_REQUEST);
+  // Quick validation
+  if (isNaN(parseInt(orderId))) {
+    return errorResponse(res, "Invalid Order ID", HttpStatus.BAD_REQUEST);
   }
-}
 
-// 🔹 Webhook endpoint for Razorpay
+  const paymentOrder = await paymentService.createRazorpayOrder(orderId, userId);
+  return successResponse(res, paymentOrder, "Payment order created successfully");
+}, 15000); // 15 seconds timeout
+
+export const verifyPayment = withTimeout(async (req, res) => {
+  const { razorpay_payment_id, razorpay_order_id, razorpay_signature, orderId } = req.body;
+  const userId = req.user.id;
+
+  // Quick validation
+  if (!razorpay_payment_id || !razorpay_order_id || !razorpay_signature || !orderId) {
+    return errorResponse(res, "Missing payment verification data", HttpStatus.BAD_REQUEST);
+  }
+
+  const verification = await paymentService.verifyRazorpayPayment({
+    razorpay_payment_id,
+    razorpay_order_id,
+    razorpay_signature,
+    orderId
+  }, userId);
+
+  return successResponse(res, verification, "Payment verified successfully");
+}, 15000);
+
+// Webhook doesn't need timeout as it's async
 export async function handlePaymentWebhook(req, res) {
   try {
     const secret = process.env.RAZORPAY_WEBHOOK_SECRET;
     const signature = req.headers['x-razorpay-signature'];
 
-    // Verify webhook signature
     const expectedSignature = crypto
       .createHmac('sha256', secret)
       .update(JSON.stringify(req.body))
@@ -57,12 +77,12 @@ export async function handlePaymentWebhook(req, res) {
       return res.status(400).send('Webhook signature verification failed');
     }
 
-    const event = req.body;
-    console.log('🔔 Received webhook event:', event.event);
+    // Process webhook in background
+    paymentService.handleWebhookEvent(req.body).catch(error => 
+      logger.error('Webhook processing error:', error)
+    );
 
-    // Handle different webhook events
-    await paymentService.handleWebhookEvent(event);
-
+    // Respond immediately
     res.status(200).send('Webhook received successfully');
   } catch (error) {
     console.error('❌ Webhook processing error:', error);
@@ -70,14 +90,25 @@ export async function handlePaymentWebhook(req, res) {
   }
 }
 
-export async function getPaymentStatus(req, res) {
-  try {
-    const { orderId } = req.params;
-    const userId = req.user.id;
+export const getPaymentStatus = withTimeout(async (req, res) => {
+  const { orderId } = req.params;
+  const userId = req.user.id;
 
-    const status = await paymentService.getPaymentStatus(orderId, userId);
-    return successResponse(res, status, "Payment status fetched successfully");
-  } catch (error) {
-    return errorResponse(res, error.message, HttpStatus.BAD_REQUEST);
+  if (!orderId || isNaN(parseInt(orderId))) {
+    return errorResponse(res, "Invalid Order ID", HttpStatus.BAD_REQUEST);
   }
-}
+
+  const status = await paymentService.getPaymentStatus(orderId, userId);
+  return successResponse(res, status, "Payment status fetched successfully");
+}, 10000); // 10 seconds timeout
+
+// 🔥 NEW: Health check endpoint
+export const healthCheck = async (req, res) => {
+  const razorpayHealth = await paymentService.checkRazorpayHealth();
+  
+  return successResponse(res, {
+    server: 'healthy',
+    razorpay: razorpayHealth ? 'healthy' : 'unhealthy',
+    timestamp: new Date().toISOString()
+  }, "Service health status");
+};

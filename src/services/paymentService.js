@@ -12,18 +12,24 @@ export class PaymentService {
       key_id: process.env.RAZORPAY_KEY_ID,
       key_secret: process.env.RAZORPAY_KEY_SECRET,
     });
+
   }
 
-  // Create Razorpay order
+  // 🔥 OPTIMIZED: Create Razorpay order with faster checks
   async createRazorpayOrder(orderId, userId) {
     try {
-      // Verify order exists and belongs to user
+      // Use faster query with only needed fields
       const order = await prisma.order.findFirst({
         where: { 
           id: parseInt(orderId),
           userId: userId 
         },
-        include: { user: true }
+        select: {
+          id: true,
+          totalAmount: true,
+          paymentStatus: true,
+          user: { select: { email: true } }
+        }
       });
 
       if (!order) {
@@ -34,9 +40,9 @@ export class PaymentService {
         throw new Error("Payment already completed for this order");
       }
 
-      // Create Razorpay order
+      // Create Razorpay order with timeout
       const options = {
-        amount: Math.round(order.totalAmount * 100), // Convert to paise
+        amount: Math.round(order.totalAmount * 100),
         currency: "INR",
         receipt: `order_${order.id}`,
         notes: {
@@ -45,18 +51,23 @@ export class PaymentService {
         }
       };
 
-      const razorpayOrder = await this.razorpay.orders.create(options);
+      const razorpayOrder = await Promise.race([
+        this.razorpay.orders.create(options),
+        new Promise((_, reject) => 
+          setTimeout(() => reject(new Error("Razorpay timeout")), 8000)
+        )
+      ]);
 
-      // Store Razorpay order ID in database
-      await prisma.order.update({
+      // Update order without waiting for completion
+      prisma.order.update({
         where: { id: order.id },
         data: { 
           razorpayOrderId: razorpayOrder.id,
           paymentStatus: "PENDING"
         }
-      });
+      }).catch(error => logger.error('Update failed:', error));
 
-      logger.info(`✅ Razorpay order created: ${razorpayOrder.id} for order ${order.id}`);
+      logger.info(`✅ Razorpay order created: ${razorpayOrder.id}`);
 
       return {
         id: razorpayOrder.id,
@@ -65,175 +76,161 @@ export class PaymentService {
         key: process.env.RAZORPAY_KEY_ID
       };
     } catch (error) {
-      logger.error(`❌ Razorpay order creation failed: ${error.message}`);
+      logger.error(`❌ Order creation failed: ${error.message}`);
       throw error;
     }
   }
 
-  // Verify payment signature
+  // 🔥 OPTIMIZED: Faster payment verification
   async verifyRazorpayPayment(paymentData, userId) {
     const { razorpay_order_id, razorpay_payment_id, razorpay_signature, orderId } = paymentData;
 
     try {
-      // Verify the order belongs to the user
-      const order = await prisma.order.findFirst({
-        where: { 
-          id: parseInt(orderId),
-          userId: userId,
-          razorpayOrderId: razorpay_order_id
-        },
-        include: { user: true, items: { include: { product: true } } }
-      });
-
-      if (!order) {
-        throw new Error("Order not found or access denied");
-      }
-
-      // Verify payment signature
+      // Verify signature FIRST (fast operation)
       const expectedSignature = crypto
         .createHmac("sha256", process.env.RAZORPAY_KEY_SECRET)
         .update(razorpay_order_id + "|" + razorpay_payment_id)
         .digest("hex");
 
       if (expectedSignature !== razorpay_signature) {
-        // Update order status to failed
-        await prisma.order.update({
-          where: { id: order.id },
-          data: { 
-            paymentStatus: "FAILED",
-            paymentError: "Signature verification failed"
-          }
-        });
-
+        await this.updateOrderPaymentStatus(parseInt(orderId), "FAILED", "Signature verification failed");
         throw new Error("Payment verification failed");
       }
 
-      // Update order status to succeeded
+      // Get order with only necessary fields
+      const order = await prisma.order.findFirst({
+        where: { 
+          id: parseInt(orderId),
+          userId: userId,
+          razorpayOrderId: razorpay_order_id
+        },
+        select: {
+          id: true,
+          paymentStatus: true,
+          user: { select: { email: true } }
+        }
+      });
+
+      if (!order) {
+        throw new Error("Order not found or access denied");
+      }
+
+      if (order.paymentStatus === "SUCCEEDED") {
+        return { success: true, message: "Payment already verified" };
+      }
+
+      // Update order status
       const updatedOrder = await prisma.order.update({
-        where: { id: order.id },
+        where: { id: parseInt(orderId) },
         data: { 
           paymentStatus: "SUCCEEDED",
           razorpayPaymentId: razorpay_payment_id,
           fulfillmentStatus: "PROCESSING"
         },
-        include: {
-          user: true,
-          items: { include: { product: true } }
+        select: {
+          id: true,
+          totalAmount: true,
+          paymentStatus: true,
+          user: { select: { email: true } }
         }
       });
 
-      // Send payment success email
-      await sendMail(
-        order.user.email,
-        `Payment Successful - Order #${order.id}`,
-        getPaymentSuccessEmail(updatedOrder)
+      // Send email in background (don't wait)
+      this.sendPaymentSuccessEmail(updatedOrder).catch(error => 
+        logger.error('Email sending failed:', error)
       );
 
-      logger.info(`✅ Payment verified successfully for order ${order.id}`);
+      logger.info(`✅ Payment verified for order ${orderId}`);
 
       return {
         success: true,
         order: updatedOrder,
         paymentId: razorpay_payment_id
       };
+
     } catch (error) {
       logger.error(`❌ Payment verification failed: ${error.message}`);
       
-      // Update order status to failed
-      await prisma.order.update({
-        where: { id: parseInt(orderId) },
+      // Update order status in background
+      this.updateOrderPaymentStatus(parseInt(orderId), "FAILED", error.message)
+        .catch(err => logger.error('Status update failed:', err));
+
+      throw error;
+    }
+  }
+
+  // 🔥 NEW: Separate method for order status update
+  async updateOrderPaymentStatus(orderId, status, errorMessage = null) {
+    const updateData = { paymentStatus: status };
+    if (errorMessage) {
+      updateData.paymentError = errorMessage;
+    }
+    
+    return await prisma.order.update({
+      where: { id: orderId },
+      data: updateData
+    });
+  }
+
+  // 🔥 NEW: Async email sending (non-blocking)
+  async sendPaymentSuccessEmail(order) {
+    try {
+      const emailContent = await getPaymentSuccessEmail(order);
+      await sendMail(
+        order.user.email,
+        `Payment Successful - Order #${order.id}`,
+        emailContent
+      );
+    } catch (error) {
+      logger.error(`Email failed for order ${order.id}:`, error);
+    }
+  }
+
+  // 🔥 OPTIMIZED: Webhook handlers with faster operations
+  async handlePaymentCaptured(payment) {
+    try {
+      // Update directly without fetching first (faster)
+      const updatedOrder = await prisma.order.updateMany({
+        where: { 
+          razorpayOrderId: payment.order_id,
+          paymentStatus: { not: "SUCCEEDED" }
+        },
         data: { 
-          paymentStatus: "FAILED",
-          paymentError: error.message
+          paymentStatus: "SUCCEEDED",
+          razorpayPaymentId: payment.id,
+          fulfillmentStatus: "PROCESSING"
         }
       });
 
-      throw error;
-    }
-  }
-
-  // Handle webhook events from Razorpay
-  async handleWebhookEvent(event) {
-    try {
-      const { payload } = event;
-      
-      switch (event.event) {
-        case 'payment.captured':
-          await this.handlePaymentCaptured(payload.payment.entity);
-          break;
+      if (updatedOrder.count > 0) {
+        logger.info(`✅ Payment captured via webhook for order ${payment.order_id}`);
         
-        case 'payment.failed':
-          await this.handlePaymentFailed(payload.payment.entity);
-          break;
-        
-        case 'order.paid':
-          await this.handleOrderPaid(payload.order.entity);
-          break;
-          
-        default:
-          logger.info(`ℹ️ Unhandled webhook event: ${event.event}`);
-      }
-    } catch (error) {
-      logger.error(`❌ Webhook handling error: ${error.message}`);
-      throw error;
-    }
-  }
-
-  async handlePaymentCaptured(payment) {
-    try {
-      const order = await prisma.order.findFirst({
-        where: { razorpayOrderId: payment.order_id },
-        include: { user: true }
-      });
-
-      if (order && order.paymentStatus !== "SUCCEEDED") {
-        await prisma.order.update({
-          where: { id: order.id },
-          data: { 
-            paymentStatus: "SUCCEEDED",
-            razorpayPaymentId: payment.id,
-            fulfillmentStatus: "PROCESSING"
-          }
-        });
-
-        logger.info(`✅ Payment captured via webhook for order ${order.id}`);
+        // Get order details for email (in background)
+        this.sendWebhookSuccessEmail(payment.order_id).catch(error => 
+          logger.error('Webhook email failed:', error)
+        );
       }
     } catch (error) {
       logger.error(`❌ Payment captured webhook error: ${error.message}`);
     }
   }
 
-  async handlePaymentFailed(payment) {
-    try {
-      const order = await prisma.order.findFirst({
-        where: { razorpayOrderId: payment.order_id }
-      });
-
-      if (order) {
-        await prisma.order.update({
-          where: { id: order.id },
-          data: { 
-            paymentStatus: "FAILED",
-            paymentError: payment.error_description || "Payment failed"
-          }
-        });
-
-        // Send payment failed email
-        if (order.user) {
-          await sendMail(
-            order.user.email,
-            `Payment Failed - Order #${order.id}`,
-            getPaymentFailedEmail(order)
-          );
-        }
-
-        logger.info(`❌ Payment failed via webhook for order ${order.id}`);
-      }
-    } catch (error) {
-      logger.error(`❌ Payment failed webhook error: ${error.message}`);
+  async sendWebhookSuccessEmail(razorpayOrderId) {
+    const order = await prisma.order.findFirst({
+      where: { razorpayOrderId },
+      include: { user: { select: { email: true } } }
+    });
+    
+    if (order && order.user) {
+      await sendMail(
+        order.user.email,
+        `Payment Successful - Order #${order.id}`,
+        getPaymentSuccessEmail(order)
+      );
     }
   }
 
+  // 🔥 OPTIMIZED: Get payment status with minimal data
   async getPaymentStatus(orderId, userId) {
     const order = await prisma.order.findFirst({
       where: { 
@@ -246,7 +243,8 @@ export class PaymentService {
         fulfillmentStatus: true,
         razorpayOrderId: true,
         razorpayPaymentId: true,
-        totalAmount: true
+        totalAmount: true,
+        createdAt: true
       }
     });
 
@@ -255,5 +253,21 @@ export class PaymentService {
     }
 
     return order;
+  }
+
+  // 🔥 NEW: Health check for Razorpay
+  async checkRazorpayHealth() {
+    try {
+      await Promise.race([
+        this.razorpay.orders.all({ count: 1 }),
+        new Promise((_, reject) => 
+          setTimeout(() => reject(new Error("Razorpay health check timeout")), 5000)
+        )
+      ]);
+      return true;
+    } catch (error) {
+      logger.error('Razorpay health check failed:', error);
+      return false;
+    }
   }
 }
