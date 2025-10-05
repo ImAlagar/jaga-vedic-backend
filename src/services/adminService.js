@@ -76,38 +76,48 @@ export async function loginAdmin(email, password) {
 } 
 
 export async function forgotPassword(email) {
-  try {
-    const admin = await adminModel.findAdminByEmail(email.toLowerCase());
-    if (!admin) {
-      // Don't reveal whether email exists for security
-      return { message: "If the email exists, a password reset link has been sent" };
+    try {
+        const admin = await adminModel.findAdminByEmail(email.toLowerCase());
+        
+        // Security: Don't reveal existence
+        const successResponse = { 
+            success: true,
+            message: "If the email exists, a password reset link has been sent" 
+        };
+
+        if (!admin) {
+            return successResponse;
+        }
+
+        const token = crypto.randomBytes(32).toString('hex');
+        const expiry = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+
+        await adminModel.updateAdmin(
+            { id: admin.id },
+            { resetToken: token, resetTokenExpiry: expiry }
+        );
+
+        const resetUrl = `${process.env.CLIENT_URL}/admin/reset-password?token=${token}`;
+
+        // Send email SYNCHRONOUSLY
+        try {
+            await sendMail(
+                email,
+                "Password Reset Request - Tech Buddyzz Admin",
+                getPasswordResetEmail(resetUrl, admin.email.split('@')[0])
+            );
+        } catch (emailError) {
+            console.error('❌ Admin password reset email failed:', emailError.message);
+        }
+
+        return successResponse;
+    } catch (error) {
+        console.error('Admin forgot password error:', error);
+        return { 
+            success: true,
+            message: "If the email exists, a password reset link has been sent" 
+        };
     }
-
-    // Generate secure token
-    const token = crypto.randomBytes(32).toString('hex');
-    const expiry = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
-
-    await adminModel.updateAdmin(
-      { id: admin.id },
-      { resetToken: token, resetTokenExpiry: expiry }
-    );
-
-    // Fix: Use the correct frontend route
-    const resetUrl = `${process.env.CLIENT_URL}/admin/reset-password?token=${token}`;
-
-    await sendMail(
-      email,
-      "Password Reset Request - Agumiya Collections Admin",
-      getPasswordResetEmail(resetUrl, admin.email.split('@')[0])
-    );
-
-    return { 
-      success: true,
-      message: "If the email exists, a password reset link has been sent" 
-    };
-  } catch (error) {
-    throw new Error(`Password reset request failed: ${error.message}`);
-  }
 }
 
 export async function resetPassword(token, newPassword) {

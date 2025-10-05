@@ -19,12 +19,12 @@ export function getPasswordResetEmail(resetUrl, adminName = 'Admin') {
         <body>
             <div class="container">
                 <div class="header">
-                    <h2>Tech Buddyzz</h2>
+                    <h2>Agumiya Collections</h2>
                 </div>
                 <div class="content">
                     <h3>Password Reset Request</h3>
                     <p>Hello ${adminName},</p>
-                    <p>We received a request to reset your password for your Tech Buddyzz admin account.</p>
+                    <p>We received a request to reset your password for your Agumiya Collections admin account.</p>
                     <p>Click the button below to reset your password:</p>
                     <p style="text-align: center;">
                         <a href="${resetUrl}" class="button">Reset Password</a>
@@ -33,7 +33,7 @@ export function getPasswordResetEmail(resetUrl, adminName = 'Admin') {
                     <p>If you didn't request this password reset, please ignore this email or contact our support team immediately.</p>
                 </div>
                 <div class="footer">
-                    <p>© ${new Date().getFullYear()} Tech Buddyzz. All rights reserved.</p>
+                    <p>© ${new Date().getFullYear()} Agumiya Collections. All rights reserved.</p>
                     <p>This is an automated message, please do not reply to this email.</p>
                 </div>
             </div>
@@ -60,16 +60,16 @@ export function getPasswordResetSuccessEmail(adminName = 'Admin') {
         <body>
             <div class="container">
                 <div class="header">
-                    <h2>Tech Buddyzz</h2>
+                    <h2>Agumiya Collections</h2>
                 </div>
                 <div class="content">
                     <h3>Password Reset Successful</h3>
                     <p>Hello ${adminName},</p>
-                    <p>Your password has been successfully reset for your Tech Buddyzz admin account.</p>
+                    <p>Your password has been successfully reset for your Agumiya Collections admin account.</p>
                     <p>If you did not initiate this change, please contact our support team immediately to secure your account.</p>
                 </div>
                 <div class="footer">
-                    <p>© ${new Date().getFullYear()} Tech Buddyzz. All rights reserved.</p>
+                    <p>© ${new Date().getFullYear()} Agumiya Collections. All rights reserved.</p>
                     <p>This is an automated message, please do not reply to this email.</p>
                 </div>
             </div>

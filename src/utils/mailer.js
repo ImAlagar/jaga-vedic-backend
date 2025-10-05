@@ -12,7 +12,7 @@ export async function sendMail(to, subject, html) {
   });
 
   return transporter.sendMail({
-    from: `"Tech Buddyzz" <${process.env.SMTP_USER}>`,
+    from: `"Agumiya Collections" <${process.env.SMTP_USER}>`,
     to,
     subject,
     html,

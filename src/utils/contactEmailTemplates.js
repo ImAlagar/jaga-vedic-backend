@@ -34,7 +34,7 @@ export function getContactConfirmationEmail(inquiry) {
       <div class="container">
         <div class="header">
           <h1>📧 Inquiry Received!</h1>
-          <p>Thank you for contacting Tech Buddyzz</p>
+          <p>Thank you for contacting Agumiya Collections</p>
         </div>
         
         <div class="content">
@@ -73,14 +73,13 @@ export function getContactConfirmationEmail(inquiry) {
             <ul>
               <li>Our team will review your inquiry</li>
               <li>We'll respond within 24 hours</li>
-              <li>For urgent matters, you can call us at +1 (555) 123-4567</li>
             </ul>
           </div>
 
           <div class="footer">
-            <p><strong>Tech Buddyzz Support Team</strong></p>
-            <p>Email: support@techbuddyzz.com | Phone: +1 (555) 123-4567</p>
-            <p>© ${new Date().getFullYear()} Tech Buddyzz. All rights reserved.</p>
+            <p><strong>Agumiya Collections Support Team</strong></p>
+            <p>Email: contact@agumiyacollections.com
+            <p>© ${new Date().getFullYear()} Agumiya Collections. All rights reserved.</p>
           </div>
         </div>
       </div>

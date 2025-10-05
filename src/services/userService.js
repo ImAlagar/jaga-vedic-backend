@@ -135,122 +135,112 @@ export async function updateUserProfile(userId, updateData) {
 
 
 export async function forgotPassword(email) {
-  try {
-    console.log(`🔍 Forgot password requested for: ${email}`);
-    
-    const user = await userModel.findUserByEmail(email.toLowerCase());
-    
-    // Return success immediately regardless of whether user exists
-    const successResponse = { 
-      message: "If the email exists, a password reset link has been sent" 
-    };
+    try {
+        
+        const user = await userModel.findUserByEmail(email.toLowerCase());
+        
+        // Security: Always return same message
+        const successResponse = { 
+            success: true,
+            message: "If the email exists, a password reset link has been sent" 
+        };
 
-    // If user doesn't exist or is inactive, still return success for security
-    if (!user || !user.isActive) {
-      console.log(`ℹ️  User not found or inactive: ${email}`);
-      return successResponse;
+        if (!user || !user.isActive) {
+            return successResponse;
+        }
+
+        // Generate secure token
+        const token = crypto.randomBytes(32).toString('hex');
+        const expiry = new Date(Date.now() + 15 * 60 * 1000); // 15 minutes
+
+
+        // CRITICAL: AWAIT the database update
+        await userModel.updateUser(
+            { id: user.id },
+            { 
+                resetToken: token, 
+                resetTokenExpiry: expiry,
+                updatedAt: new Date()
+            }
+        );
+
+        const resetUrl = `${process.env.CLIENT_URL}/reset-password?token=${token}`;
+
+        // CRITICAL: Send email SYNCHRONOUSLY in production
+        try {
+            await sendMail(
+                user.email,
+                "Password Reset Request - Tech Buddyzz",
+                getPasswordResetEmail(resetUrl, user.name)
+            );
+        } catch (emailError) {
+            console.error('❌ CRITICAL: Password reset email failed:', {
+                email: user.email,
+                error: emailError.message
+            });
+            // Still return success for security
+        }
+
+        return successResponse;
+
+    } catch (error) {
+        console.error('❌ Forgot password error:', error);
+        // Return success even on error for security
+        return { 
+            success: true,
+            message: "If the email exists, a password reset link has been sent" 
+        };
     }
-
-    const token = crypto.randomBytes(32).toString('hex');
-    const expiry = new Date(Date.now() + 15 * 60 * 1000); // 15 minutes
-
-    console.log(`📝 Generating reset token for user: ${user.email}`);
-
-    // Update user with reset token (non-blocking)
-    userModel.updateUser(
-      { id: user.id },
-      { 
-        resetToken: token, 
-        resetTokenExpiry: expiry,
-        updatedAt: new Date()
-      }
-    )
-    .then(() => {
-      console.log(`✅ Reset token saved for user: ${user.email}`);
-    })
-    .catch(error => {
-      console.error('❌ Failed to update user reset token:', error);
-    });
-
-    const resetUrl = `${process.env.CLIENT_URL}/reset-password?token=${token}`;
-    console.log(`🔗 Reset URL generated: ${resetUrl}`);
-
-    // Send email ASYNCHRONOUSLY with enhanced logging
-    sendMail(
-      user.email,
-      "Password Reset Request",
-      getPasswordResetEmail(resetUrl, user.name)
-    )
-    .then(() => {
-      console.log(`✅ Password reset email sent to: ${user.email}`);
-    })
-    .catch(error => {
-      console.error('❌ Password reset email failed:', {
-        email: user.email,
-        error: error.message,
-        timestamp: new Date().toISOString()
-      });
-    });
-
-    return successResponse;
-
-  } catch (error) {
-    console.error('❌ Forgot password error:', error);
-    // Still return success for security even if there's an error
-    return { 
-      message: "If the email exists, a password reset link has been sent" 
-    };
-  }
 }
 
 export async function resetPassword(token, newPassword) {
-  try {
-    if (!token || token.length !== 64) {
-      throw new Error("Invalid reset token");
+    try {
+        if (!token || token.length !== 64) {
+            throw new Error("Invalid reset token");
+        }
+
+        const user = await userModel.findUserByResetToken(token);
+        if (!user) {
+            throw new Error("Invalid or expired reset token");
+        }
+
+        // Enhanced password validation
+        if (!newPassword || newPassword.length < 8) {
+            throw new Error("Password must be at least 8 characters long");
+        }
+
+        const hashedPassword = await bcrypt.hash(newPassword, 12);
+        
+        // Update user password
+        await userModel.updateUser(
+            { id: user.id },
+            { 
+                password: hashedPassword, 
+                resetToken: null, 
+                resetTokenExpiry: null 
+            }
+        );
+
+
+        // Send success email
+        try {
+            await sendMail(
+                user.email,
+                "Password Reset Successful - Tech Buddyzz",
+                getPasswordResetSuccessEmail(user.name)
+            );
+        } catch (emailError) {
+            console.error('❌ Success email failed (password was still reset):', emailError.message);
+        }
+
+        return { 
+            success: true,
+            message: "Password has been reset successfully" 
+        };
+    } catch (error) {
+        throw new Error(`Password reset failed: ${error.message}`);
     }
-
-    const user = await userModel.findUserByResetToken(token);
-    if (!user) {
-      throw new Error("Invalid or expired reset token");
-    }
-
-    // Basic password validation
-    if (!newPassword || newPassword.length < 6) {
-      throw new Error("Password must be at least 6 characters long");
-    }
-
-    const hashedPassword = await bcrypt.hash(newPassword, 12);
-    
-    await userModel.updateUser(
-      { id: user.id },
-      { 
-        password: hashedPassword, 
-        resetToken: null, 
-        resetTokenExpiry: null 
-      }
-    );
-
-    console.log(`✅ Password reset successful for user: ${user.email}`);
-
-    // Send success email asynchronously
-    sendMail(
-      user.email,
-      "Password Reset Successful",
-      getPasswordResetSuccessEmail(user.name)
-    )
-    .then(() => {
-      console.log(`✅ Password reset success email sent to: ${user.email}`);
-    })
-    .catch(error => {
-      console.error('❌ Success email failed:', error);
-    });
-
-    return { message: "Password has been reset successfully" };
-  } catch (error) {
-    throw new Error(`Password reset failed: ${error.message}`);
-  }
 }
-
 // Admin services
 export async function getAllUsers(page = 1, limit = 10, search = '') {
   try {
