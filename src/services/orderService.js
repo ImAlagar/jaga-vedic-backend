@@ -1,4 +1,3 @@
-// src/services/orderService.js
 import prisma from "../config/prisma.js";
 import { PrintifyOrderService } from "./printifyOrderService.js";
 import { sendMail } from "../utils/mailer.js";
@@ -13,14 +12,15 @@ export class OrderService {
   }
 
   // 🔹 Create Order
-  async createOrder(userId, orderData) {
+// 🔹 Create Order - OPTIMIZED
+async createOrder(userId, orderData) {
     const { items, shippingAddress, orderImage, orderNotes } = orderData;
 
     // 1. Ensure user exists
     const user = await prisma.user.findUnique({ where: { id: userId } });
     if (!user) throw new Error(`User with ID ${userId} not found`);
 
-    // 2. Pre-fetch all products at once
+    // 2. Pre-fetch all products at once (reduces DB calls)
     const productIds = items.map(item => item.productId);
     const products = await prisma.product.findMany({
         where: { id: { in: productIds } }
@@ -28,7 +28,7 @@ export class OrderService {
     
     const productMap = new Map(products.map(p => [p.id, p]));
 
-    // 3. Calculate total + prepare items
+    // 3. Calculate total + prepare items (parallel validation)
     let totalAmount = 0;
     let subtotalAmount = 0;
     const orderItems = [];
@@ -71,7 +71,6 @@ export class OrderService {
             totalAmount,
             subtotalAmount,
             paymentStatus: "PENDING",
-            fulfillmentStatus: "PLACED",
             shippingAddress,
             orderImage,
             orderNotes,
@@ -93,175 +92,99 @@ export class OrderService {
     });
 
     return order;
-  }
+}
 
-  // 🔹 Handle async operations
-  async handleAsyncOperations(order) {
+// 🔹 Handle async operations separately
+async handleAsyncOperations(order) {
     try {
-      // Run Printify and Email in parallel
-      await Promise.allSettled([
-        this.forwardToPrintify(order),
-        this.sendOrderNotifications(order)
-      ]);
+        // Run Printify and Email in parallel
+        await Promise.allSettled([
+            this.forwardToPrintify(order),
+            this.sendOrderNotifications(order)
+        ]);
     } catch (error) {
-      logger.error(`Async operations error for order ${order.id}:`, error);
+        logger.error(`Async operations error for order ${order.id}:`, error);
     }
-  }
+}
 
-  // 🔹 Forward to Printify - FIXED
-  async forwardToPrintify(order) {
+// 🔹 Forward to Printify
+async forwardToPrintify(order) {
     try {
-      const printifyService = new PrintifyOrderService(process.env.PRINTIFY_SHOP_ID);
-      const printifyItems = order.items.map((item) => ({
-        ...item,
-        printifyProductId: item.product.printifyProductId,
-        sku: item.product.sku,
-      }));
+        const printifyService = new PrintifyOrderService(process.env.PRINTIFY_SHOP_ID);
+        const printifyItems = order.items.map((item) => ({
+            ...item,
+            printifyProductId: item.product.printifyProductId,
+            sku: item.product.sku,
+        }));
 
-      const printifyOrder = await printifyService.createOrder({
-        orderId: order.id,
-        items: printifyItems,
-        shippingAddress: order.shippingAddress,
-        orderImage: order.orderImage,
-      });
+        const printifyOrder = await printifyService.createOrder({
+            orderId: order.id,
+            items: printifyItems,
+            shippingAddress: order.shippingAddress,
+            orderImage: order.orderImage,
+        });
 
-      // Only update if it's a new order (not existing one)
-      if (!printifyOrder.existing) {
         await prisma.order.update({
-          where: { id: order.id },
-          data: {
-            printifyOrderId: printifyOrder.id,
-            fulfillmentStatus: "PROCESSING",
-          },
+            where: { id: order.id },
+            data: {
+                printifyOrderId: printifyOrder.id,
+                fulfillmentStatus: "PROCESSING",
+            },
         });
 
         logger.info(`✅ Order ${order.id} forwarded to Printify: ${printifyOrder.id}`);
-      } else {
-        logger.info(`ℹ️ Order ${order.id} already exists in Printify: ${printifyOrder.id}`);
-        
-        // Update with existing Printify order ID
-        await prisma.order.update({
-          where: { id: order.id },
-          data: {
-            printifyOrderId: printifyOrder.id,
-            fulfillmentStatus: "PROCESSING",
-          },
-        });
-      }
     } catch (err) {
-      logger.error(`⚠️ Printify forwarding failed for order ${order.id}:`, {
-        error: err.message,
-        stack: err.stack
-      });
-      
-      // Update order status to indicate failure
-      await prisma.order.update({
-        where: { id: order.id },
-        data: {
-          fulfillmentStatus: "FAILED",
-          errorLog: err.message
-        }
-      });
+        logger.error(`⚠️ Printify forwarding failed for order ${order.id}: ${err.message}`);
     }
-  }
+}
 
-  // 🔹 Send notifications
-  async sendOrderNotifications(order) {
+// 🔹 Send notifications
+async sendOrderNotifications(order) {
     try {
-      await Promise.allSettled([
-        sendMail(
-          order.user.email,
-          `Order Confirmation - #${order.id}`,
-          getOrderConfirmationEmail(order)
-        ),
-        sendMail(
-          process.env.ADMIN_EMAIL,
-          `New Order - #${order.id}`,
-          getAdminNewOrderEmail(order)
-        )
-      ]);
-      logger.info(`📧 Notifications sent for order ${order.id}`);
+        await Promise.allSettled([
+            sendMail(
+                order.user.email,
+                `Order Confirmation - #${order.id}`,
+                getOrderConfirmationEmail(order)
+            ),
+            sendMail(
+                process.env.ADMIN_EMAIL,
+                `New Order - #${order.id}`,
+                getAdminNewOrderEmail(order)
+            )
+        ]);
+        logger.info(`📧 Notifications sent for order ${order.id}`);
     } catch (mailErr) {
-      logger.error(`❌ Email sending failed: ${mailErr.message}`);
+        logger.error(`❌ Email sending failed: ${mailErr.message}`);
     }
-  }
+}
+  // 🔹 User's Orders
+// In your orderService.js
+async getUserOrders(userId) {
 
-  // 🔹 Retry Printify Forwarding
-  async retryPrintifyForwarding(orderId) {
-    const order = await prisma.order.findUnique({
-      where: { id: orderId },
-      include: {
-        user: true,
-        items: { include: { product: true } },
-      },
-    });
-
-    if (!order) throw new Error("Order not found");
-    
-    // Check current status
-    if (order.fulfillmentStatus === "PROCESSING" || order.fulfillmentStatus === "SHIPPED") {
-      throw new Error(`Order is already in ${order.fulfillmentStatus} status`);
-    }
-
-    // Reset status to allow retry
-    await prisma.order.update({
-      where: { id: orderId },
-      data: { 
-        fulfillmentStatus: "PLACED",
-        errorLog: null 
-      }
-    });
-
-    const printifyService = new PrintifyOrderService(process.env.PRINTIFY_SHOP_ID);
-    const printifyItems = order.items.map((item) => ({
-      ...item,
-      printifyProductId: item.product.printifyProductId,
-      sku: item.product.sku,
-    }));
-
-    const printifyOrder = await printifyService.createOrder({
-      orderId: order.id,
-      items: printifyItems,
-      shippingAddress: order.shippingAddress,
-      orderImage: order.orderImage,
-    });
-
-    await prisma.order.update({
-      where: { id: orderId },
-      data: { 
-        printifyOrderId: printifyOrder.id, 
-        fulfillmentStatus: "PROCESSING" 
-      },
-    });
-
-    logger.info(`✅ Retry successful: Order ${orderId} forwarded as ${printifyOrder.id}`);
-    return printifyOrder.id;
-  }
-
-  // ... (keep all your other existing methods the same)
-  async getUserOrders(userId) {
     try {
-      const orders = await prisma.order.findMany({
-        where: { userId },
-        include: {
-          items: {
+        const orders = await prisma.order.findMany({
+            where: { userId },
             include: {
-              product: {
-                select: { id: true, name: true, price: true, images: true },
-              },
+                items: {
+                    include: {
+                        product: {
+                            select: { id: true, name: true, price: true, images: true },
+                        },
+                    },
+                },
             },
-          },
-        },
-        orderBy: { createdAt: "desc" },
-      });
-       
-      return orders;
+            orderBy: { createdAt: "desc" },
+        });
+         
+        return orders;
     } catch (error) {
-      console.error('Error in getUserOrders:', error);
-      throw error;
+        console.error('Error in getUserOrders:', error);
+        throw error;
     }
-  }
+}
 
+  // 🔹 Admin - Get All Orders
   async getAllOrders() {
     return await prisma.order.findMany({
       include: {
@@ -280,200 +203,294 @@ export class OrderService {
     });
   }
 
-  async updateOrderStatus(orderId, statusData) {
-    const { paymentStatus, fulfillmentStatus } = statusData;
+  // 🔹 Update Order Status
+async updateOrderStatus(orderId, statusData) {
+  // Extract only allowed fields
+  const { paymentStatus, fulfillmentStatus } = statusData;
 
-    if (!paymentStatus && !fulfillmentStatus) {
-      throw new Error("At least one of paymentStatus or fulfillmentStatus is required");
-    }
+  if (!paymentStatus && !fulfillmentStatus) {
+    throw new Error("At least one of paymentStatus or fulfillmentStatus is required");
+  }
 
-    return await prisma.order.update({
+  return await prisma.order.update({
+    where: { id: orderId },
+    data: {
+      ...(paymentStatus && { paymentStatus }),
+      ...(fulfillmentStatus && { fulfillmentStatus }),
+    },
+    include: {
+      user: true,
+      items: { include: { product: true } },
+    },
+  });
+}
+
+
+
+  // 🔹 Retry Printify Forwarding
+  async retryPrintifyForwarding(orderId) {
+    const order = await prisma.order.findUnique({
       where: { id: orderId },
-      data: {
-        ...(paymentStatus && { paymentStatus }),
-        ...(fulfillmentStatus && { fulfillmentStatus }),
-      },
       include: {
         user: true,
         items: { include: { product: true } },
       },
     });
+
+    if (!order) throw new Error("Order not found");
+    if (order.printifyOrderId) throw new Error("Already forwarded to Printify");
+
+    const printifyService = new PrintifyOrderService(process.env.PRINTIFY_SHOP_ID);
+    const printifyItems = order.items.map((item) => ({
+      ...item,
+      printifyProductId: item.product.printifyProductId,
+      sku: item.product.sku,
+    }));
+
+    const printifyOrder = await printifyService.createOrder({
+      orderId: order.id,
+      items: printifyItems,
+      shippingAddress: order.shippingAddress,
+      orderImage: order.orderImage,
+    });
+
+    await prisma.order.update({
+      where: { id: orderId },
+      data: { printifyOrderId: printifyOrder.id, fulfillmentStatus: "PROCESSING" },
+    });
+
+    logger.info(`✅ Retry successful: Order ${orderId} forwarded as ${printifyOrder.id}`);
+    return printifyOrder.id;
   }
 
-  async getOrderStats() {
-    try {
-      const totalOrders = await prisma.order.count();
-      
-      const pending = await prisma.order.count({
-        where: {
-          OR: [
-            { fulfillmentStatus: FulfillmentStatus.PLACED },
-            { fulfillmentStatus: FulfillmentStatus.PROCESSING },
-            { fulfillmentStatus: FulfillmentStatus.SHIPPED }
-          ]
-        }
-      });
-      
-      const completed = await prisma.order.count({
-        where: {
-          fulfillmentStatus: FulfillmentStatus.DELIVERED
-        }
-      });
-      
-      const revenueResult = await prisma.order.aggregate({
-        where: {
-          fulfillmentStatus: FulfillmentStatus.DELIVERED,
-          paymentStatus: PaymentStatus.SUCCEEDED
-        },
-        _sum: {
-          totalAmount: true
-        }
-      });
-      
-      const revenue = revenueResult._sum.totalAmount || 0;
-      
-      return {
-        totalOrders,
-        pending,
-        completed,
-        revenue
-      };
-    } catch (error) {
-      console.error("Error fetching order stats:", error); 
-      throw new Error('Failed to fetch order statistics');
-    }
-  }
 
-  async getOrderById(orderId) {
-    try {
-      const order = await prisma.order.findUnique({
-        where: { id: orderId },
-        include: {
-          user: {
-            select: { 
-              id: true, 
-              name: true, 
-              email: true 
-            },
+async getOrderStats() {
+  try {
+    // Get total orders count
+    const totalOrders = await prisma.order.count();
+    
+    // Get pending orders count (PLACED + PROCESSING + SHIPPED)
+    const pending = await prisma.order.count({
+      where: {
+        OR: [
+          { fulfillmentStatus: FulfillmentStatus.PLACED },
+          { fulfillmentStatus: FulfillmentStatus.PROCESSING },
+          { fulfillmentStatus: FulfillmentStatus.SHIPPED }
+        ]
+      }
+    });
+    
+    // Get completed orders count (DELIVERED)
+    const completed = await prisma.order.count({
+      where: {
+        fulfillmentStatus: FulfillmentStatus.DELIVERED
+      }
+    });
+    
+    // Calculate total revenue from completed + succeeded payments
+    const revenueResult = await prisma.order.aggregate({
+      where: {
+        fulfillmentStatus: FulfillmentStatus.DELIVERED,
+        paymentStatus: PaymentStatus.SUCCEEDED
+      },
+      _sum: {
+        totalAmount: true
+      }
+    });
+    
+    const revenue = revenueResult._sum.totalAmount || 0;
+    
+    return {
+      totalOrders,
+      pending,
+      completed,
+      revenue
+    };
+  } catch (error) {
+    console.error("Error fetching order stats:", error); 
+    throw new Error('Failed to fetch order statistics');
+  }
+}
+
+// In your OrderService class - Add this method
+async getOrderById(orderId) {
+  try {
+    const order = await prisma.order.findUnique({
+      where: { id: orderId },
+      include: {
+        user: {
+          select: { 
+            id: true, 
+            name: true, 
+            email: true 
           },
-          items: {
-            include: {
-              product: {
-                select: { 
-                  id: true, 
-                  name: true, 
-                  price: true, 
-                  images: true,
-                  printifyProductId: true
-                },
+        },
+        items: {
+          include: {
+            product: {
+              select: { 
+                id: true, 
+                name: true, 
+                price: true, 
+                images: true,
+                printifyProductId: true
               },
             },
           },
         },
-      });
+      },
+    });
 
-      if (!order) {
-        throw new Error("Order not found");
-      }
-
-      return order;
-    } catch (error) {
-      console.error('Error in getOrderById:', error);
-      throw error;
+    if (!order) {
+      throw new Error("Order not found");
     }
+
+    return order;
+  } catch (error) {
+    console.error('Error in getOrderById:', error);
+    throw error;
   }
+}
 
-  async getAvailableFilters() {
-    try {
-      const [statusCounts, paymentStatusCounts, dateRange] = await Promise.all([
-        prisma.order.groupBy({
-          by: ['fulfillmentStatus'],
-          _count: {
-            id: true
-          }
-        }),
-        prisma.order.groupBy({
-          by: ['paymentStatus'],
-          _count: {
-            id: true
-          }
-        }),
-        prisma.order.aggregate({
-          _min: { createdAt: true },
-          _max: { createdAt: true }
-        })
-      ]);
-
-      return {
-        statuses: statusCounts.map(s => ({
-          value: s.fulfillmentStatus,
-          label: s.fulfillmentStatus.charAt(0) + s.fulfillmentStatus.slice(1).toLowerCase(),
-          count: s._count.id
-        })),
-        paymentStatuses: paymentStatusCounts.map(p => ({
-          value: p.paymentStatus,
-          label: p.paymentStatus.charAt(0) + p.paymentStatus.slice(1).toLowerCase(),
-          count: p._count.id
-        })),
-        dateRange: {
-          min: dateRange._min.createdAt,
-          max: dateRange._max.createdAt
+// In your OrderService class - Add these methods
+async getAvailableFilters() {
+  try {
+    const [statusCounts, paymentStatusCounts, dateRange] = await Promise.all([
+      prisma.order.groupBy({
+        by: ['fulfillmentStatus'],
+        _count: {
+          id: true
         }
-      };
-    } catch (error) {
-      console.error('Error in getAvailableFilters:', error);
-      throw error;
-    }
+      }),
+      prisma.order.groupBy({
+        by: ['paymentStatus'],
+        _count: {
+          id: true
+        }
+      }),
+      prisma.order.aggregate({
+        _min: { createdAt: true },
+        _max: { createdAt: true }
+      })
+    ]);
+
+    return {
+      statuses: statusCounts.map(s => ({
+        value: s.fulfillmentStatus,
+        label: s.fulfillmentStatus.charAt(0) + s.fulfillmentStatus.slice(1).toLowerCase(),
+        count: s._count.id
+      })),
+      paymentStatuses: paymentStatusCounts.map(p => ({
+        value: p.paymentStatus,
+        label: p.paymentStatus.charAt(0) + p.paymentStatus.slice(1).toLowerCase(),
+        count: p._count.id
+      })),
+      dateRange: {
+        min: dateRange._min.createdAt,
+        max: dateRange._max.createdAt
+      }
+    };
+  } catch (error) {
+    console.error('Error in getAvailableFilters:', error);
+    throw error;
   }
+}
 
-  async getFilteredOrders(filters, options) {
-    try {
-      const { page, limit, sortBy, sortOrder } = options;
-      const offset = (page - 1) * limit;
+async getFilteredOrders(filters, options) {
+  try {
+    const { page, limit, sortBy, sortOrder } = options;
+    const offset = (page - 1) * limit;
 
-      const [orders, total] = await Promise.all([
-        prisma.order.findMany({
-          where: filters,
-          skip: offset,
-          take: limit,
-          orderBy: { [sortBy]: sortOrder },
-          include: {
-            user: {
-              select: {
-                id: true,
-                name: true,
-                email: true
-              }
-            },
-            items: {
-              include: {
-                product: {
-                  select: {
-                    name: true,
-                    price: true,
-                    images: true
-                  }
+    const [orders, total] = await Promise.all([
+      prisma.order.findMany({
+        where: filters,
+        skip: offset,
+        take: limit,
+        orderBy: { [sortBy]: sortOrder },
+        include: {
+          user: {
+            select: {
+              id: true,
+              name: true,
+              email: true
+            }
+          },
+          items: {
+            include: {
+              product: {
+                select: {
+                  name: true,
+                  price: true,
+                  images: true
                 }
               }
             }
           }
-        }),
-        prisma.order.count({ where: filters })
-      ]);
-
-      return {
-        data: orders,
-        meta: {
-          total,
-          page,
-          totalPages: Math.ceil(total / limit),
-          hasNext: page < Math.ceil(total / limit),
-          hasPrev: page > 1
         }
-      };
-    } catch (error) {
-      console.error('Error in getFilteredOrders:', error);
-      throw error;
-    }
+      }),
+      prisma.order.count({ where: filters })
+    ]);
+
+    return {
+      data: orders,
+      meta: {
+        total,
+        page,
+        totalPages: Math.ceil(total / limit),
+        hasNext: page < Math.ceil(total / limit),
+        hasPrev: page > 1
+      }
+    };
+  } catch (error) {
+    console.error('Error in getFilteredOrders:', error);
+    throw error;
   }
+}
+
+// In your OrderService class - Add these methods
+async getAvailableFilters() {
+  try {
+    const [statusCounts, paymentStatusCounts, dateRange] = await Promise.all([
+      prisma.order.groupBy({
+        by: ['fulfillmentStatus'],
+        _count: {
+          id: true
+        }
+      }),
+      prisma.order.groupBy({
+        by: ['paymentStatus'],
+        _count: {
+          id: true
+        }
+      }),
+      prisma.order.aggregate({
+        _min: { createdAt: true },
+        _max: { createdAt: true }
+      })
+    ]);
+
+    return {
+      statuses: statusCounts.map(s => ({
+        value: s.fulfillmentStatus,
+        label: s.fulfillmentStatus.charAt(0) + s.fulfillmentStatus.slice(1).toLowerCase(),
+        count: s._count.id
+      })),
+      paymentStatuses: paymentStatusCounts.map(p => ({
+        value: p.paymentStatus,
+        label: p.paymentStatus.charAt(0) + p.paymentStatus.slice(1).toLowerCase(),
+        count: p._count.id
+      })),
+      dateRange: {
+        min: dateRange._min.createdAt,
+        max: dateRange._max.createdAt
+      }
+    };
+  } catch (error) {
+    console.error('Error in getAvailableFilters:', error);
+    throw error;
+  }
+}
+
+
+
 }
