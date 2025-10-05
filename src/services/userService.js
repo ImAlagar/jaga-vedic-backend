@@ -166,19 +166,18 @@ export async function forgotPassword(email) {
 
         const resetUrl = `${process.env.CLIENT_URL}/reset-password?token=${token}`;
 
-        // CRITICAL: Send email SYNCHRONOUSLY in production
         try {
-            await sendMail(
-                user.email,
-                "Password Reset Request - Tech Buddyzz",
-                getPasswordResetEmail(resetUrl, user.name)
-            );
-        } catch (emailError) {
-            console.error('❌ CRITICAL: Password reset email failed:', {
-                email: user.email,
-                error: emailError.message
-            });
-            // Still return success for security
+          sendMail(
+            user.email,
+            "Password Reset Request - Agumiya Collections",
+            getPasswordResetEmail(resetUrl, user.name)
+          ).catch(err => console.error('Email failed:', err.message));
+
+          // 👇 Return immediately (frontend won’t timeout)
+          return successResponse;
+        } catch (error) {
+          console.error('❌ Forgot password error:', error);
+          return successResponse;
         }
 
         return successResponse;

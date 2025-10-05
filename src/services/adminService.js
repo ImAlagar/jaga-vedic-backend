@@ -100,15 +100,19 @@ export async function forgotPassword(email) {
         const resetUrl = `${process.env.CLIENT_URL}/admin/reset-password?token=${token}`;
 
         // Send email SYNCHRONOUSLY
-        try {
-            await sendMail(
-                email,
-                "Password Reset Request - Tech Buddyzz Admin",
-                getPasswordResetEmail(resetUrl, admin.email.split('@')[0])
-            );
-        } catch (emailError) {
-            console.error('❌ Admin password reset email failed:', emailError.message);
-        }
+          try {
+            sendMail(
+              email,
+              "Password Reset Request - Agumiya Collections",
+              getPasswordResetEmail(resetUrl, user.name)
+            ).catch(err => console.error('Email failed:', err.message));
+
+            // 👇 Return immediately (frontend won’t timeout)
+            return successResponse;
+          } catch (error) {
+            console.error('❌ Forgot password error:', error);
+            return successResponse;
+          }
 
         return successResponse;
     } catch (error) {
