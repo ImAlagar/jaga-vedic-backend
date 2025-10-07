@@ -45,6 +45,7 @@
     "node-cron": "^4.2.1",
     "nodemailer": "^7.0.6",
     "razorpay": "^2.9.6",
+    "resend": "^6.1.2",
     "socket.io": "^4.8.1",
     "stripe": "^18.5.0",
     "winston": "^3.17.0"

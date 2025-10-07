@@ -8,7 +8,8 @@ import {
   getProductVariants,
   getAllProductsAdmin,
   debugProducts,
-  getSimilarProducts
+  getSimilarProducts,
+  getProductsByCategory
 } from "../controllers/productController.js";
 import { 
   productSyncValidator, 
@@ -18,29 +19,20 @@ import { validateRequest } from "../middlewares/validateRequest.js";
 
 const router = express.Router();
 
-// GET /products - Get all products with pagination and filters
+// GET /products - Get all products
 router.get("/", productQueryValidator, validateRequest, getAllProducts);
 
-// GET /products/admin - Get all products including unpublished (for admin)
+// ✅ Static routes first
 router.get("/admin", productQueryValidator, validateRequest, getAllProductsAdmin);
-
-// GET /products/:id - Get single product
-router.get("/:id", getProductById);
-
-// GET /products/:productId/variants - Get product variants
-router.get("/:productId/variants", getProductVariants);
-
-// GET /products/sync/:shopId - Sync products from Printify
-router.get("/sync/:shopId", productSyncValidator, validateRequest, syncProducts);
-
-// GET /products/filters - Get available filters
 router.get("/filters", getProductFilters);
-
-// GET /products/filter - Filter products
 router.get("/filter", filterProducts);
-
+router.get("/category/:category", getProductsByCategory); // Add category route
+router.get("/sync/:shopId", productSyncValidator, validateRequest, syncProducts);
 router.get("/debug/info", debugProducts);
 
+// ✅ Dynamic routes after all static routes
 router.get("/:productId/similar", getSimilarProducts);
+router.get("/:productId/variants", getProductVariants);
+router.get("/:id", getProductById);
 
 export default router;

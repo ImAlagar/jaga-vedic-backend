@@ -113,7 +113,7 @@ export async function getProductVariants(req, res) {
 export async function filterProducts(req, res) {
   try {
     const {
-      category,
+      categories, // Changed from 'category' to 'categories' to match your URL
       minPrice,
       maxPrice,
       inStock,
@@ -124,29 +124,39 @@ export async function filterProducts(req, res) {
       sortOrder = "desc"
     } = req.query;
 
+    console.log('🔍 Filter parameters received:', {
+      categories,
+      minPrice,
+      maxPrice,
+      inStock,
+      search,
+      page,
+      limit
+    });
+
+    // Build filters object for service
     const filters = {
-      ...(category && { category: { equals: category, mode: 'insensitive' } }),
-      ...(minPrice && { price: { gte: parseFloat(minPrice) } }),
-      ...(maxPrice && { price: { lte: parseFloat(maxPrice) } }),
+      ...(categories && { categories }), // Pass categories as is to service
+      ...(minPrice && { minPrice: parseFloat(minPrice) }),
+      ...(maxPrice && { maxPrice: parseFloat(maxPrice) }),
       ...(inStock !== undefined && { inStock: inStock === 'true' }),
-      ...(search && {
-        OR: [
-          { name: { contains: search, mode: 'insensitive' } },
-          { description: { contains: search, mode: 'insensitive' } },
-          { category: { contains: search, mode: 'insensitive' } }
-        ]
-      })
+      ...(search && { search })
     };
 
-    const result = await productService.getFilteredProducts(filters, {
+    const options = {
       page: parseInt(page),
       limit: parseInt(limit),
       sortBy,
       sortOrder
-    });
+    };
+
+    console.log('📋 Calling service with filters:', filters);
+
+    const result = await productService.getFilteredProducts(filters, options);
 
     return successResponse(res, result, "Products filtered successfully", HttpStatus.OK);
   } catch (error) {
+    console.error("💥 Filter products error:", error);
     return errorResponse(res, error.message, HttpStatus.INTERNAL_SERVER_ERROR);
   }
 }
@@ -252,5 +262,35 @@ export async function getSimilarProducts(req, res) {
   } catch (error) {
     console.error("Get similar products error:", error);
     return errorResponse(res, error.message, HttpStatus.BAD_REQUEST);
+  }
+}
+
+// In your productController.js file
+export async function getProductsByCategory(req, res) {
+  try {
+    const { category } = req.params;
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 12;
+
+    console.log(`🎯 Category filter request: ${category}, page: ${page}, limit: ${limit}`);
+
+    if (!category) {
+      return errorResponse(res, "Category parameter is required", HttpStatus.BAD_REQUEST);
+    }
+
+    // Validate category exists
+    const availableFilters = await productService.getAvailableFilters();
+    const validCategories = availableFilters.categories.map(cat => cat.value);
+    
+    if (!validCategories.includes(category)) {
+      return errorResponse(res, `Invalid category. Available categories: ${validCategories.join(', ')}`, HttpStatus.BAD_REQUEST);
+    }
+
+    const result = await productService.getProductsByCategory(category, page, limit);
+
+    return successResponse(res, result, `Products in category "${category}" fetched successfully`, HttpStatus.OK);
+  } catch (error) {
+    console.error("💥 Backend getProductsByCategory error:", error);
+    return errorResponse(res, error.message || "Internal server error", HttpStatus.BAD_REQUEST);
   }
 }

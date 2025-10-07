@@ -205,14 +205,57 @@ export async function getFilteredProducts(filters, options) {
 
   console.log('🔍 Filtered products query:', { filters, page, limit, offset });
 
-  const finalFilters = {
-    ...filters,
-    isPublished: true
+  // Build comprehensive where clause
+  const whereClause = {
+    isPublished: true,
+    AND: [
+      // Category filter (supports array or single value) - FIXED
+      filters.categories ? {
+        OR: Array.isArray(filters.categories) 
+          ? filters.categories.map(cat => ({ 
+              category: { 
+                equals: cat, 
+                mode: 'insensitive' 
+              } 
+            }))
+          : [{ 
+              category: { 
+                equals: filters.categories, 
+                mode: 'insensitive' 
+              } 
+            }]
+      } : {},
+      
+      // Price range filter
+      {
+        AND: [
+          filters.minPrice ? { price: { gte: parseFloat(filters.minPrice) } } : {},
+          filters.maxPrice ? { price: { lte: parseFloat(filters.maxPrice) } } : {}
+        ]
+      },
+      
+      // Stock filter
+      filters.inStock !== undefined ? { 
+        inStock: filters.inStock === 'true' || filters.inStock === true
+      } : {},
+      
+      // Search filter
+      filters.search ? {
+        OR: [
+          { name: { contains: filters.search, mode: 'insensitive' } },
+          { description: { contains: filters.search, mode: 'insensitive' } },
+          { category: { contains: filters.search, mode: 'insensitive' } }
+        ]
+      } : {}
+    ].filter(condition => Object.keys(condition).length > 0)
   };
 
+  console.log('📋 Final where clause:', JSON.stringify(whereClause, null, 2));
+
+  // Get filtered products
   const [products, total] = await Promise.all([
     prisma.product.findMany({
-      where: finalFilters,
+      where: whereClause,
       skip: offset,
       take: limit,
       orderBy: { [sortBy]: sortOrder },
@@ -231,12 +274,24 @@ export async function getFilteredProducts(filters, options) {
         updatedAt: true
       }
     }),
-    prisma.product.count({ where: finalFilters })
+    prisma.product.count({ where: whereClause })
   ]);
+
+  // Calculate actual price range for the filtered results
+  const priceStats = await prisma.product.aggregate({
+    where: whereClause,
+    _min: {
+      price: true
+    },
+    _max: {
+      price: true
+    }
+  });
 
   const totalPages = Math.ceil(total / limit);
 
-  return {
+  const result = {
+    success: true,
     data: products,
     pagination: {
       currentPage: page,
@@ -245,29 +300,42 @@ export async function getFilteredProducts(filters, options) {
       limit: limit,
       hasNext: page < totalPages,
       hasPrev: page > 1
+    },
+    filters: {
+      priceRange: {
+        min: priceStats._min.price || 0,
+        max: priceStats._max.price || 0
+      },
+      appliedFilters: filters
     }
   };
+
+  console.log(`📊 Filter results: ${products.length} products found out of ${total}`);
+  console.log(`💰 Price range for filtered products: ${priceStats._min.price} - ${priceStats._max.price}`);
+  
+  return result;
 }
 
 export async function getAvailableFilters() {
-  const [categories, priceRange, stockCounts] = await Promise.all([
+  const [categories, priceRange, stockCounts, categoryCounts] = await Promise.all([
+    // Get unique categories
     prisma.product.findMany({
       select: { category: true },
       distinct: ['category'],
       where: { 
         category: { not: null },
-        inStock: true,
         isPublished: true
       }
     }),
+    // Get price range
     prisma.product.aggregate({
       _min: { price: true },
       _max: { price: true },
       where: { 
-        inStock: true,
         isPublished: true
       }
     }),
+    // Get stock counts
     prisma.product.groupBy({
       by: ['inStock'],
       _count: {
@@ -276,14 +344,32 @@ export async function getAvailableFilters() {
       where: {
         isPublished: true
       }
+    }),
+    // Get category counts
+    prisma.product.groupBy({
+      by: ['category'],
+      _count: {
+        id: true
+      },
+      where: {
+        category: { not: null },
+        isPublished: true
+      }
     })
   ]);
 
   const inStockCount = stockCounts.find(s => s.inStock)?._count?.id || 0;
   const outOfStockCount = stockCounts.find(s => !s.inStock)?._count?.id || 0;
 
+  // Create category options with counts
+  const categoryOptions = categoryCounts.map(cat => ({
+    value: cat.category,
+    label: cat.category,
+    count: cat._count.id
+  })).sort((a, b) => a.label.localeCompare(b.label));
+
   return {
-    categories: categories.map(c => c.category).filter(Boolean).sort(),
+    categories: categoryOptions,
     priceRange: {
       min: priceRange._min.price || 0,
       max: priceRange._max.price || 0
@@ -343,3 +429,71 @@ export async function getSimilarProducts(productId, limit = 4) {
     throw new Error(`Failed to fetch similar products: ${error.message}`);
   }
 }
+
+export async function getProductsByCategory(category, page = 1, limit = 12) {
+  try {
+    const skip = (page - 1) * limit;
+    
+    // Build where clause for category filter
+    const whereClause = {
+      isPublished: true,
+      category: { 
+        equals: category, 
+        mode: 'insensitive' 
+      }
+    };
+
+    console.log(`🔍 Fetching products for category: ${category}`);
+
+    const [products, totalCount] = await Promise.all([
+      prisma.product.findMany({
+        where: whereClause,
+        select: {
+          id: true,
+          name: true,
+          description: true,
+          price: true,
+          images: true,
+          category: true,
+          inStock: true,
+          isPublished: true,
+          printifyProductId: true,
+          sku: true,
+          printifyVariants: true,
+          createdAt: true,
+          updatedAt: true
+        },
+        orderBy: { createdAt: 'desc' },
+        skip: skip,
+        take: limit
+      }),
+      prisma.product.count({ where: whereClause })
+    ]);
+
+    console.log(`📊 Found ${products.length} products in category "${category}" out of ${totalCount} total`);
+
+    const totalPages = Math.ceil(totalCount / limit);
+
+    return {
+      success: true,
+      data: products,
+      pagination: {
+        currentPage: page,
+        totalPages: totalPages,
+        totalCount: totalCount,
+        limit: limit,
+        hasNext: page < totalPages,
+        hasPrev: page > 1
+      },
+      category: category
+    };
+  } catch (error) {
+    console.error("❌ Database error in getProductsByCategory:", error);
+    throw new Error(`Failed to fetch products by category: ${error.message}`);
+  }
+
+  
+}
+
+
+
