@@ -25,8 +25,8 @@ async function checkAndSeedDatabase() {
   try {
     const prisma = new PrismaClient();
     
-    // Check if any admin exists
-    const adminCount = await prisma.user.count({
+    // Check if any admin exists in the Admin table (not User table)
+    const adminCount = await prisma.admin.count({
       where: { 
         role: 'SUPER_ADMIN' 
       }
