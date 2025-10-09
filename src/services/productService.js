@@ -496,4 +496,106 @@ export async function getProductsByCategory(category, page = 1, limit = 12) {
 }
 
 
+export async function deleteProduct(productId) {
+  try {
+    logger.info(`🗑️ Attempting to delete product: ${productId}`);
+
+    // First, check if product exists
+    const existingProduct = await productModel.findProductById(productId);
+    
+    if (!existingProduct) {
+      throw new Error('Product not found');
+    }
+
+    // Delete the product from database
+    const result = await productModel.deleteProductById(productId);
+
+    logger.info(`✅ Product deleted successfully: ${productId}`);
+    
+    return {
+      success: true,
+      message: 'Product deleted successfully',
+      deletedProduct: {
+        id: productId,
+        name: existingProduct.name,
+        printifyProductId: existingProduct.printifyProductId
+      }
+    };
+  } catch (error) {
+    logger.error(`❌ Failed to delete product ${productId}: ${error.message}`);
+    throw new Error(`Failed to delete product: ${error.message}`);
+  }
+}
+
+export async function deleteProductByPrintifyId(printifyProductId, shopId) {
+  try {
+    logger.info(`🗑️ Attempting to delete Printify product: ${printifyProductId} from shop: ${shopId}`);
+
+    // First, delete from Printify API
+    await printifyApi.delete(`/shops/${shopId}/products/${printifyProductId}.json`);
+
+    // Then delete from our database
+    const existingProduct = await productModel.findProductByPrintifyId(printifyProductId);
+    
+    if (existingProduct) {
+      await productModel.deleteProductById(existingProduct.id);
+    }
+
+    logger.info(`✅ Printify product deleted successfully: ${printifyProductId}`);
+    
+    return {
+      success: true,
+      message: 'Product deleted from Printify and local database',
+      deletedProduct: {
+        printifyProductId: printifyProductId,
+        name: existingProduct?.name
+      }
+    };
+  } catch (error) {
+    logger.error(`❌ Failed to delete Printify product ${printifyProductId}: ${error.message}`);
+    
+    // If Printify deletion fails but we have local record, still delete locally
+    if (error.response?.status === 404) {
+      const existingProduct = await productModel.findProductByPrintifyId(printifyProductId);
+      if (existingProduct) {
+        await productModel.deleteProductById(existingProduct.id);
+        logger.info(`✅ Local product record deleted (Printify product not found): ${printifyProductId}`);
+        return {
+          success: true,
+          message: 'Product deleted from local database (was not found on Printify)',
+          deletedProduct: {
+            printifyProductId: printifyProductId,
+            name: existingProduct.name
+          }
+        };
+      }
+    }
+    
+    throw new Error(`Failed to delete Printify product: ${error.message}`);
+  }
+}
+
+
+export async function bulkDeleteProducts(productIds) {
+  try {
+    logger.info(`🗑️ Attempting bulk delete for ${productIds.length} products`);
+
+    if (!Array.isArray(productIds) || productIds.length === 0) {
+      throw new Error('Product IDs array is required and cannot be empty');
+    }
+
+    const results = await productModel.bulkDeleteProducts(productIds);
+
+    logger.info(`✅ Bulk delete completed: ${results.deletedCount} products deleted`);
+    
+    return {
+      success: true,
+      message: `Successfully deleted ${results.deletedCount} products`,
+      ...results
+    };
+  } catch (error) {
+    logger.error(`❌ Bulk delete failed: ${error.message}`);
+    throw new Error(`Failed to delete products: ${error.message}`);
+  }
+}
 

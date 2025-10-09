@@ -511,3 +511,58 @@ export function getPaymentFailedEmail(order, errorMessage) {
     </html>
   `;
 }
+
+// src/utils/emailTemplates.js - Add these templates
+
+export function getOrderCancelledEmail(order, reason, cancelledBy) {
+  return `
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+      <h2 style="color: #dc2626;">Order Cancelled</h2>
+      <p>Dear ${order.user.name},</p>
+      
+      <p>Your order <strong>#${order.id}</strong> has been cancelled.</p>
+      
+      <div style="background: #fef2f2; padding: 15px; border-radius: 5px; margin: 15px 0;">
+        <p><strong>Reason:</strong> ${reason}</p>
+        <p><strong>Cancelled by:</strong> ${cancelledBy}</p>
+        <p><strong>Cancelled on:</strong> ${new Date().toLocaleDateString()}</p>
+        <p><strong>Order Amount:</strong> ₹${order.totalAmount}</p>
+      </div>
+
+      ${order.refundStatus === 'PENDING' ? `
+        <p>Your refund of <strong>₹${order.refundAmount}</strong> is being processed and will be credited to your original payment method within 5-7 business days.</p>
+      ` : ''}
+      
+      ${order.refundStatus === 'COMPLETED' ? `
+        <p>Your refund of <strong>₹${order.refundAmount}</strong> has been processed successfully.</p>
+      ` : ''}
+
+      <p>If you have any questions, please contact our support team.</p>
+      
+      <p>Best regards,<br>Your Store Team</p>
+    </div>
+  `;
+}
+
+export function getRefundProcessedEmail(order, refundId) {
+  return `
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+      <h2 style="color: #059669;">Refund Processed</h2>
+      <p>Dear ${order.user.name},</p>
+      
+      <p>We have processed your refund for order <strong>#${order.id}</strong>.</p>
+      
+      <div style="background: #f0fdf4; padding: 15px; border-radius: 5px; margin: 15px 0;">
+        <p><strong>Refund Amount:</strong> ₹${order.refundAmount}</p>
+        <p><strong>Refund ID:</strong> ${refundId}</p>
+        <p><strong>Processed on:</strong> ${new Date().toLocaleDateString()}</p>
+      </div>
+
+      <p>The amount will be credited to your original payment method within 5-7 business days.</p>
+      
+      <p>If you have any questions, please contact our support team.</p>
+      
+      <p>Best regards,<br>Your Store Team</p>
+    </div>
+  `;
+}

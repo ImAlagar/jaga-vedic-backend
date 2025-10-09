@@ -1,6 +1,7 @@
 import crypto from 'crypto';
 import prisma from '../config/prisma.js';
 import logger from '../utils/logger.js';
+import { OrderService } from "../services/orderService.js";
 
 export async function handleWebhook(req, res) {
   try {
@@ -219,4 +220,46 @@ async function handleRefundCreated(refund) {
       refundId: refund_id
     });
   }
+}
+
+
+
+
+const orderService = new OrderService();
+
+export async function handlePrintifyWebhook(req, res) {
+  try {
+    const { event, data } = req.body;
+    
+    // Verify webhook signature (implement based on Printify docs)
+    const signature = req.headers['printify-signature'];
+    if (!verifyWebhookSignature(signature, req.body)) {
+      return res.status(401).json({ error: 'Invalid signature' });
+    }
+
+    logger.info(`🔄 Printify webhook received: ${event}`, { orderId: data.id });
+
+    if (event === 'order:updated' && data.id) {
+      // Find order by Printify order ID
+      const order = await prisma.order.findFirst({
+        where: { printifyOrderId: data.id }
+      });
+
+      if (order) {
+        await orderService.syncOrderStatusFromPrintify(order.id);
+        logger.info(`✅ Webhook processed for order ${order.id}`);
+      }
+    }
+
+    res.status(200).json({ received: true });
+  } catch (error) {
+    logger.error('❌ Webhook processing failed:', error);
+    res.status(500).json({ error: 'Webhook processing failed' });
+  }
+}
+
+function verifyWebhookSignature(signature, body) {
+  // Implement signature verification based on Printify documentation
+  // This is a placeholder - check Printify docs for exact implementation
+  return true;
 }

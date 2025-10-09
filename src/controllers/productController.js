@@ -294,3 +294,64 @@ export async function getProductsByCategory(req, res) {
     return errorResponse(res, error.message || "Internal server error", HttpStatus.BAD_REQUEST);
   }
 }
+
+
+export async function deleteProduct(req, res) {
+  try {
+    const { id } = req.params;
+
+    if (!id || isNaN(id)) {
+      return errorResponse(res, "Valid product ID is required", HttpStatus.BAD_REQUEST);
+    }
+
+    const result = await productService.deleteProduct(parseInt(id));
+
+    return successResponse(res, result, "Product deleted successfully", HttpStatus.OK);
+  } catch (error) {
+    if (error.message === 'Product not found') {
+      return errorResponse(res, "Product not found", HttpStatus.NOT_FOUND);
+    }
+    return errorResponse(res, error.message, HttpStatus.BAD_REQUEST);
+  }
+}
+
+export async function deletePrintifyProduct(req, res) {
+  try {
+    const { printifyProductId, shopId } = req.params;
+
+    if (!printifyProductId || !shopId) {
+      return errorResponse(res, "Printify Product ID and Shop ID are required", HttpStatus.BAD_REQUEST);
+    }
+
+    const result = await productService.deleteProductByPrintifyId(printifyProductId, shopId);
+
+    return successResponse(res, result, "Printify product deleted successfully", HttpStatus.OK);
+  } catch (error) {
+    if (error.message.includes('not found')) {
+      return errorResponse(res, "Product not found", HttpStatus.NOT_FOUND);
+    }
+    return errorResponse(res, error.message, HttpStatus.BAD_REQUEST);
+  }
+}
+
+export async function bulkDeleteProducts(req, res) {
+  try {
+    const { productIds } = req.body;
+
+    if (!Array.isArray(productIds) || productIds.length === 0) {
+      return errorResponse(res, "Product IDs array is required and cannot be empty", HttpStatus.BAD_REQUEST);
+    }
+
+    // Validate all IDs are numbers
+    const invalidIds = productIds.filter(id => isNaN(parseInt(id)));
+    if (invalidIds.length > 0) {
+      return errorResponse(res, `Invalid product IDs: ${invalidIds.join(', ')}`, HttpStatus.BAD_REQUEST);
+    }
+
+    const result = await productService.bulkDeleteProducts(productIds);
+
+    return successResponse(res, result, "Products deleted successfully", HttpStatus.OK);
+  } catch (error) {
+    return errorResponse(res, error.message, HttpStatus.BAD_REQUEST);
+  }
+}

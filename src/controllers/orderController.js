@@ -1,9 +1,10 @@
 // src/controllers/orderController.js
 import { OrderService } from "../services/orderService.js";
-import { CreateOrderDto, OrderResponseDto } from "../dto/orderDto.js";
+import { CreateOrderDto, OrderResponseDto, OrderTrackingDto } from "../dto/orderDto.js";
 import { successResponse, errorResponse } from "../utils/responseHandler.js";
 import HttpStatus from "../constants/httpStatusCode.js";
 import { socketEvents } from "../config/socket.js";
+import prisma from "../config/prisma.js";
 
 const orderService = new OrderService();
 
@@ -19,7 +20,6 @@ export async function createOrder(req, res) {
 
     const order = await orderService.createOrder(userId, orderData);
     
-    // ✅ Correct event
     socketEvents.emitNewOrder(OrderResponseDto.fromOrder(order));
 
     return successResponse(
@@ -32,7 +32,6 @@ export async function createOrder(req, res) {
     return errorResponse(res, error.message, HttpStatus.BAD_REQUEST);
   }
 }
-
 
 export async function getUserOrders(req, res) {
   try {
@@ -53,13 +52,34 @@ export async function getUserOrders(req, res) {
   }
 }
 
-export async function   getAllOrders(req, res) {
+export async function getAllOrders(req, res) {
   try {
-    const orders = await orderService.getAllOrders();
+    const {
+      page = 1,
+      limit = 5,
+      search = '',
+      status = '',
+      paymentStatus = '',
+      sortBy = 'createdAt',
+      sortOrder = 'desc'
+    } = req.query;
+
+    const result = await orderService.getAllOrders({
+      page: parseInt(page),
+      limit: parseInt(limit),
+      search,
+      status,
+      paymentStatus,
+      sortBy,
+      sortOrder
+    });
     
     return successResponse(
       res, 
-      orders.map(OrderResponseDto.fromOrder), 
+      {
+        orders: result.orders.map(OrderResponseDto.fromOrder),
+        pagination: result.pagination
+      },
       'Orders fetched successfully'
     );
   } catch (error) {
@@ -74,10 +94,6 @@ export async function updateOrderStatus(req, res) {
     
     const order = await orderService.updateOrderStatus(parseInt(orderId), statusData);
     
-    // ❌ Wrong
-    // req.io.emit('orderUpdated', OrderResponseDto.fromOrder(order));
-
-    // ✅ Correct
     socketEvents.emitOrderUpdate(OrderResponseDto.fromOrder(order));
 
     return successResponse(
@@ -90,8 +106,6 @@ export async function updateOrderStatus(req, res) {
   }
 }
 
-
-// src/controllers/orderController.js - Add this function
 export async function retryPrintifyForwarding(req, res) {
   try {
     const { orderId } = req.params;
@@ -127,7 +141,6 @@ export async function getOrderStats(req, res) {
   }
 }
 
-// In orderController.js - Update these functions to use class methods
 export async function filterOrders(req, res) {
   try {
     const {
@@ -167,7 +180,6 @@ export async function filterOrders(req, res) {
       })
     };
 
-    // Remove undefined values
     Object.keys(filters).forEach(key => {
       if (filters[key] === undefined) {
         delete filters[key];
@@ -187,8 +199,6 @@ export async function filterOrders(req, res) {
   }
 }
 
-
-
 export async function getOrderFilters(req, res) {
   try {
     const filters = await orderService.getAvailableFilters();
@@ -198,7 +208,6 @@ export async function getOrderFilters(req, res) {
   }
 }
 
-// src/controllers/orderController.js - Add this function
 export async function getOrderById(req, res) {
   try {
     const { orderId } = req.params;
@@ -215,7 +224,6 @@ export async function getOrderById(req, res) {
       return errorResponse(res, "Order not found", HttpStatus.NOT_FOUND);
     }
 
-    // ✅ FIX: Allow admins to access any order, users only their own
     const isAdmin = userRole === 'admin';
     const isOrderOwner = order.userId === userId;
     
@@ -233,8 +241,6 @@ export async function getOrderById(req, res) {
   }
 }
 
-
-// src/controllers/orderController.js - Add this function
 export async function getAdminOrderById(req, res) {
   try {
     const { orderId } = req.params;
@@ -253,6 +259,288 @@ export async function getAdminOrderById(req, res) {
       res, 
       OrderResponseDto.fromOrder(order), 
       'Order fetched successfully'
+    );
+  } catch (error) {
+    return errorResponse(res, error.message, HttpStatus.BAD_REQUEST);
+  }
+}
+
+export async function getOrderTracking(req, res) {
+  try {
+    const { orderId } = req.params;
+    const userId = req.user.id;
+    const userRole = req.user.role;
+
+    if (!orderId || isNaN(orderId)) {
+      return errorResponse(res, "Valid order ID is required", HttpStatus.BAD_REQUEST);
+    }
+
+    const order = await orderService.getOrderWithTracking(
+      parseInt(orderId), 
+      userId, 
+      userRole
+    );
+
+    const trackingResponse = OrderTrackingDto.fromOrder(order);
+
+    return successResponse(
+      res, 
+      trackingResponse, 
+      'Tracking information fetched successfully'
+    );
+  } catch (error) {
+    return errorResponse(res, error.message, HttpStatus.BAD_REQUEST);
+  }
+}
+
+export async function syncOrderStatus(req, res) {
+  try {
+    const { orderId } = req.params;
+    const userRole = req.user.role;
+
+    if (!orderId || isNaN(orderId)) {
+      return errorResponse(res, "Valid order ID is required", HttpStatus.BAD_REQUEST);
+    }
+
+    if (userRole !== 'admin') {
+      return errorResponse(res, "Access denied", HttpStatus.FORBIDDEN);
+    }
+
+    const order = await orderService.syncOrderStatusFromPrintify(parseInt(orderId));
+    
+    socketEvents.emitOrderUpdate(OrderTrackingDto.fromOrder(order));
+
+    return successResponse(
+      res, 
+      OrderTrackingDto.fromOrder(order), 
+      'Order status synced successfully'
+    );
+  } catch (error) {
+    return errorResponse(res, error.message, HttpStatus.BAD_REQUEST);
+  }
+}
+
+export async function bulkSyncOrders(req, res) {
+  try {
+    const userRole = req.user.role;
+
+    if (userRole !== 'admin') {
+      return errorResponse(res, "Access denied", HttpStatus.FORBIDDEN);
+    }
+
+    const result = await orderService.syncAllOrdersStatus();
+    
+    return successResponse(
+      res, 
+      result, 
+      'Bulk order sync completed successfully'
+    );
+  } catch (error) {
+    return errorResponse(res, error.message, HttpStatus.BAD_REQUEST);
+  }
+}
+
+export async function cancelOrder(req, res) {
+  try {
+    const { orderId } = req.params;
+    const { reason } = req.body;
+    const userId = req.user.id;
+    const userRole = req.user.role;
+
+    if (!orderId || isNaN(orderId)) {
+      return errorResponse(res, "Valid order ID is required", HttpStatus.BAD_REQUEST);
+    }
+
+    const order = await orderService.getOrderById(parseInt(orderId));
+    
+    if (!order) {
+      return errorResponse(res, "Order not found", HttpStatus.NOT_FOUND);
+    }
+
+    // Authorization: Users can only cancel their own orders, admins can cancel any
+    const isAdmin = userRole === 'admin';
+    const isOrderOwner = order.userId === userId;
+    
+    if (!isAdmin && !isOrderOwner) {
+      return errorResponse(res, "Access denied", HttpStatus.FORBIDDEN);
+    }
+
+    const cancelledOrder = await orderService.cancelOrder(
+      parseInt(orderId), 
+      reason || "Cancelled by user",
+      isAdmin ? 'admin' : 'user'
+    );
+
+    // Emit socket event for real-time update
+    socketEvents.emitOrderUpdate(OrderResponseDto.fromOrder(cancelledOrder));
+
+    return successResponse(
+      res, 
+      OrderResponseDto.fromOrder(cancelledOrder), 
+      'Order cancelled successfully'
+    );
+  } catch (error) {
+    return errorResponse(res, error.message, HttpStatus.BAD_REQUEST);
+  }
+}
+
+export async function adminCancelOrder(req, res) {
+  try {
+    const { orderId } = req.params;
+    const { reason } = req.body;
+
+    if (!orderId || isNaN(orderId)) {
+      return errorResponse(res, "Valid order ID is required", HttpStatus.BAD_REQUEST);
+    }
+
+    const order = await orderService.getOrderById(parseInt(orderId));
+    
+    if (!order) {
+      return errorResponse(res, "Order not found", HttpStatus.NOT_FOUND);
+    }
+
+    const cancelledOrder = await orderService.cancelOrder(
+      parseInt(orderId), 
+      reason || "Cancelled by admin",
+      'admin'
+    );
+
+    socketEvents.emitOrderUpdate(OrderResponseDto.fromOrder(cancelledOrder));
+
+    return successResponse(
+      res, 
+      OrderResponseDto.fromOrder(cancelledOrder), 
+      'Order cancelled successfully'
+    );
+  } catch (error) {
+    return errorResponse(res, error.message, HttpStatus.BAD_REQUEST);
+  }
+}
+
+export async function getCancelledOrders(req, res) {
+  try {
+    const { 
+      page = 1, 
+      limit = 10, 
+      refundStatus,
+      startDate,
+      endDate 
+    } = req.query;
+    
+    const filters = {
+      fulfillmentStatus: 'CANCELLED',
+      ...(refundStatus && refundStatus !== 'all' && { refundStatus }),
+      ...(startDate && endDate && {
+        cancelledAt: {
+          gte: new Date(startDate),
+          lte: new Date(endDate)
+        }
+      })
+    };
+
+    const result = await orderService.getFilteredOrders(filters, {
+      page: parseInt(page),
+      limit: parseInt(limit),
+      sortBy: 'cancelledAt',
+      sortOrder: 'desc'
+    });
+
+    // Use OrderResponseDto instead of CancelledOrderDto temporarily
+    const transformedData = {
+      ...result,
+      data: result.data.map(order => OrderResponseDto.fromOrder(order))
+    };
+
+    return successResponse(res, transformedData, "Cancelled orders fetched successfully");
+  } catch (error) {
+    return errorResponse(res, error.message, HttpStatus.INTERNAL_SERVER_ERROR);
+  }
+}
+
+export async function getCancellationStats(req, res) {
+  try {
+    const stats = await orderService.getCancellationStats();
+    return successResponse(res, stats, "Cancellation statistics fetched successfully");
+  } catch (error) {
+    return errorResponse(res, error.message, HttpStatus.INTERNAL_SERVER_ERROR);
+  }
+}
+
+export async function processRefund(req, res) {
+  try {
+    const { orderId } = req.params;
+    const { reason } = req.body;
+    
+    if (!orderId || isNaN(orderId)) {
+      return errorResponse(res, "Valid order ID is required", HttpStatus.BAD_REQUEST);
+    }
+
+    const order = await orderService.getOrderById(parseInt(orderId));
+    
+    if (!order) {
+      return errorResponse(res, "Order not found", HttpStatus.NOT_FOUND);
+    }
+
+    if (order.refundStatus !== 'PENDING') {
+      return errorResponse(res, `Refund cannot be processed. Current status: ${order.refundStatus}`, HttpStatus.BAD_REQUEST);
+    }
+
+    const refund = await orderService.processRefund(order, reason || "Manual refund processing");
+
+    return successResponse(res, refund, "Refund processed successfully");
+  } catch (error) {
+    return errorResponse(res, error.message, HttpStatus.BAD_REQUEST);
+  }
+}
+
+export async function retryRefund(req, res) {
+  try {
+    const { orderId } = req.params;
+    
+    if (!orderId || isNaN(orderId)) {
+      return errorResponse(res, "Valid order ID is required", HttpStatus.BAD_REQUEST);
+    }
+
+    const refund = await orderService.retryRefund(parseInt(orderId));
+
+    return successResponse(res, refund, "Refund retried successfully");
+  } catch (error) {
+    return errorResponse(res, error.message, HttpStatus.BAD_REQUEST);
+  }
+}
+
+
+// Add to your orderController.js
+export async function resetRefundStatus(req, res) {
+  try {
+    const { orderId } = req.params;
+    
+    if (!orderId || isNaN(orderId)) {
+      return errorResponse(res, "Valid order ID is required", HttpStatus.BAD_REQUEST);
+    }
+
+    const order = await orderService.getOrderById(parseInt(orderId));
+    
+    if (!order) {
+      return errorResponse(res, "Order not found", HttpStatus.NOT_FOUND);
+    }
+
+    // Reset refund status to PENDING
+    const updatedOrder = await prisma.order.update({
+      where: { id: parseInt(orderId) },
+      data: { 
+        refundStatus: 'PENDING'
+      },
+      include: {
+        user: true,
+        items: { include: { product: true } }
+      }
+    });
+
+    return successResponse(
+      res, 
+      OrderResponseDto.fromOrder(updatedOrder), 
+      'Refund status reset to PENDING'
     );
   } catch (error) {
     return errorResponse(res, error.message, HttpStatus.BAD_REQUEST);

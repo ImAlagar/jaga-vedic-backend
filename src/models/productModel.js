@@ -217,3 +217,58 @@ export async function findAllProductsAdmin(page = 1, limit = 10, search = '', ca
     throw new Error("Database error occurred");
   }
 }
+
+export async function deleteProductById(id) {
+  try {
+    const product = await prisma.product.delete({
+      where: { id: parseInt(id) }
+    });
+
+    return product;
+  } catch (error) {
+    if (error.code === 'P2025') {
+      throw new Error('Product not found');
+    }
+    console.error("Error deleting product by ID:", error);
+    throw new Error("Database error occurred while deleting product");
+  }
+}
+
+export async function deleteProductByPrintifyId(printifyProductId) {
+  try {
+    const product = await prisma.product.delete({
+      where: { printifyProductId }
+    });
+
+    return product;
+  } catch (error) {
+    if (error.code === 'P2025') {
+      throw new Error('Product not found');
+    }
+    console.error("Error deleting product by Printify ID:", error);
+    throw new Error("Database error occurred while deleting product");
+  }
+}
+
+export async function bulkDeleteProducts(productIds) {
+  try {
+    // Convert all IDs to numbers
+    const numericIds = productIds.map(id => parseInt(id));
+    
+    const result = await prisma.product.deleteMany({
+      where: {
+        id: {
+          in: numericIds
+        }
+      }
+    });
+
+    return {
+      deletedCount: result.count,
+      productIds: numericIds
+    };
+  } catch (error) {
+    console.error("Error in bulk delete products:", error);
+    throw new Error("Database error occurred while bulk deleting products");
+  }
+}

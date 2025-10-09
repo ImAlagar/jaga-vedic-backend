@@ -178,3 +178,20 @@ export async function getCouponStats() {
     popularCoupons
   };
 }
+
+
+export async function findAllActiveCoupons() {
+  const now = new Date();
+  
+  return await prisma.coupon.findMany({
+    where: {
+      isActive: true,
+      validFrom: { lte: now },
+      OR: [
+        { validUntil: null },
+        { validUntil: { gte: now } }
+      ]
+    },
+    orderBy: { createdAt: 'desc' }
+  });
+}

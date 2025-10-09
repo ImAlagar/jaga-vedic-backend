@@ -84,28 +84,47 @@ model Order {
   id                  Int              @id @default(autoincrement())
   userId              Int
   totalAmount         Float
+  subtotalAmount      Float            // Amount before discount
   paymentStatus       PaymentStatus    @default(PENDING)
   fulfillmentStatus   FulfillmentStatus @default(PLACED)
   
   // Razorpay fields
   razorpayOrderId     String?          @unique
   razorpayPaymentId   String?          @unique
+  razorpayRefundId    String?          @unique
   
+  // Shipping & Tracking
   shippingAddress     Json?
-  createdAt           DateTime         @default(now())  
-  updatedAt           DateTime?        @updatedAt
-
+  trackingNumber      String?
+  trackingUrl         String?
+  carrier             String?
+  shipmentDate        DateTime?
+  estimatedDelivery   DateTime?
+  
   // Printify integration fields
   printifyOrderId     String?          @unique
+  printifyStatus      String?
   orderImage          String?          // Custom design image
   orderNotes          String?          // Special instructions
   
   // Coupon fields
   couponCode          String?
   discountAmount      Float?           @default(0)
-  subtotalAmount      Float            // Amount before discount
   couponId            Int?
   
+  // Cancellation & Refund fields
+  cancelledAt         DateTime?
+  cancellationReason String?
+  cancelledBy         String?          // 'user' or 'admin'
+  refundStatus        RefundStatus?    @default(PENDING)
+  refundAmount        Float?
+  refundRequestedAt   DateTime?
+  refundProcessedAt   DateTime?
+  
+  // Timestamps
+  createdAt           DateTime         @default(now())  
+  updatedAt           DateTime?        @updatedAt
+
   // Relations
   user        User       @relation(fields: [userId], references: [id], onDelete: Cascade)
   items       OrderItem[]
@@ -192,6 +211,7 @@ model CouponUsage {
 model PaymentLog {
   id           Int      @id @default(autoincrement())
   orderId      Int
+  userId       Int?
   paymentId    String   @unique
   amount       Float
   currency     String   @default("INR")
@@ -202,23 +222,25 @@ model PaymentLog {
   createdAt    DateTime @default(now())
 
   order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  user  User? @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("payment_logs")
-  User User[]
 }
 
 //
 // 🔹 Refund Table
 //
 model Refund {
-  id          Int      @id @default(autoincrement())
+  id          Int       @id @default(autoincrement())
   orderId     Int
-  refundId    String   @unique
+  refundId    String    @unique
   amount      Float
   status      RefundStatus
   reason      String?
   processedAt DateTime
-  createdAt   DateTime @default(now())
+  notes       String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 
   order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
 
@@ -258,7 +280,9 @@ enum PaymentStatus {
   PENDING
   SUCCEEDED
   FAILED
+  REFUND_PENDING
   REFUNDED
+  PARTIALLY_REFUNDED
 }
 
 enum FulfillmentStatus {
@@ -267,12 +291,15 @@ enum FulfillmentStatus {
   SHIPPED 
   DELIVERED
   CANCELLED
+  FAILED
 }
 
 enum RefundStatus {
   PENDING
-  PROCESSED
+  PROCESSING
+  COMPLETED
   FAILED
+  NOT_REQUIRED
 }
 
 enum InquiryType {

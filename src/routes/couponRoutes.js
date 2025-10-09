@@ -1,3 +1,4 @@
+// routes/couponRoutes.js
 import express from "express";
 import {
   validateCoupon,
@@ -6,15 +7,22 @@ import {
   getCoupon,
   updateCoupon,
   deleteCoupon,
-  getCouponStats
+  getCouponStats,
+  getAvailableCoupons,
+  markCouponAsUsed,
+  getPublicAvailableCoupons
 } from "../controllers/couponController.js";
-        import { verifyAdminToken } from "../middlewares/authToken.js";
+import { verifyAdminToken, verifyUserToken } from "../middlewares/authToken.js";
 
 const router = express.Router();
 
-// Public route - coupon validation (for cart)
+// Public routes
 router.post("/validate", validateCoupon);
 
+// User routes (require authentication)
+router.post("/available", getAvailableCoupons);
+router.post("/mark-used", verifyUserToken, markCouponAsUsed);
+router.get("/public/available", getPublicAvailableCoupons);
 // Admin routes
 router.post("/", verifyAdminToken, createCoupon);
 router.get("/", verifyAdminToken, getCoupons);

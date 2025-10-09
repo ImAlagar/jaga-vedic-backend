@@ -4,8 +4,9 @@ import { successResponse, errorResponse } from "../utils/responseHandler.js";
 
 export async function validateCoupon(req, res) {
   try {
-    const { code, cartItems, subtotal } = req.body;
-    const userId = req.user?.id; // From auth middleware
+    const { code, cartItems, subtotal, userId } = req.body;
+    const authenticatedUserId = req.user?.id;
+    const finalUserId = authenticatedUserId || userId;
 
     if (!code || !cartItems || subtotal === undefined) {
       return errorResponse(res, "Code, cartItems, and subtotal are required", HttpStatus.BAD_REQUEST);
@@ -13,19 +14,41 @@ export async function validateCoupon(req, res) {
 
     const validation = await couponService.validateCoupon(
       code, 
-      userId, 
+      finalUserId, 
       cartItems, 
       parseFloat(subtotal)
     );
 
-    if (!validation.isValid) {
-      return errorResponse(res, validation.error, HttpStatus.BAD_REQUEST);
+    // ✅ ALWAYS return 200, but include isValid flag in response
+    return successResponse(
+      res,
+      validation, // This should have { isValid: true/false, error: message if invalid }
+      validation.isValid ? "Coupon applied successfully" : validation.error,
+      HttpStatus.OK // Always return 200, let frontend handle validation logic
+    );
+  } catch (error) {
+    return errorResponse(res, error.message, HttpStatus.INTERNAL_SERVER_ERROR);
+  }
+}
+export async function getAvailableCoupons(req, res) {
+  try {
+    const { cartItems, subtotal } = req.body;
+    const userId = req.user.id; // Now properly extracted from token
+
+    if (!cartItems || subtotal === undefined) {
+      return errorResponse(res, "cartItems and subtotal are required", HttpStatus.BAD_REQUEST);
     }
+
+    const availableCoupons = await couponService.getAvailableCoupons(
+      userId,
+      cartItems,
+      parseFloat(subtotal)
+    );
 
     return successResponse(
       res,
-      validation,
-      "Coupon applied successfully",
+      availableCoupons,
+      "Available coupons retrieved successfully",
       HttpStatus.OK
     );
   } catch (error) {
@@ -174,6 +197,55 @@ export async function getCouponStats(req, res) {
       res,
       stats,
       "Coupon statistics retrieved successfully",
+      HttpStatus.OK
+    );
+  } catch (error) {
+    return errorResponse(res, error.message, HttpStatus.INTERNAL_SERVER_ERROR);
+  }
+}
+
+export async function markCouponAsUsed(req, res) {
+  try {
+    const { couponId, userId, orderId, discountAmount, couponCode } = req.body;
+
+    if (!couponId || !userId || !orderId) {
+      return errorResponse(res, "couponId, userId, and orderId are required", HttpStatus.BAD_REQUEST);
+    }
+
+    const result = await couponService.markCouponAsUsed(
+      couponId,
+      userId,
+      orderId,
+      discountAmount,
+      couponCode
+    );
+
+    return successResponse(
+      res,
+      result,
+      "Coupon marked as used successfully",
+      HttpStatus.OK
+    );
+  } catch (error) {
+    return errorResponse(res, error.message, HttpStatus.INTERNAL_SERVER_ERROR);
+  }
+}
+
+
+// In couponController.js
+export async function getPublicAvailableCoupons(req, res) {
+  try {
+    const { category, minOrderAmount } = req.query;
+    
+    const coupons = await couponService.getPublicAvailableCoupons({
+      category,
+      minOrderAmount: minOrderAmount ? parseFloat(minOrderAmount) : undefined
+    });
+
+    return successResponse(
+      res,
+      coupons,
+      "Available coupons retrieved successfully",
       HttpStatus.OK
     );
   } catch (error) {
