@@ -15,7 +15,10 @@
     "db:studio": "prisma studio",
     "db:seed": "node prisma/seed.js",
     "db:reset": "prisma migrate reset",
-    "db:migrate": "prisma migrate dev"
+    "db:migrate": "prisma migrate dev",
+    "dev:with-seed": "npm run db:seed && npm run dev",
+    "start:with-seed": "npm run db:seed && npm run start",
+    "db:deploy": "npm run db:migrate && npm run db:seed"
   },
   "keywords": [],
   "author": "",
