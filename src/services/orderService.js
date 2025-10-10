@@ -792,13 +792,40 @@ async getAllOrders(filters = {}) {
   }
   
   if (search) {
+    const searchTerm = search.trim();
+    const orderId = parseInt(searchTerm);
+    
     where.OR = [
-      { id: { equals: parseInt(search) || 0 } },
-      { user: { name: { contains: search, mode: 'insensitive' } } },
-      { user: { email: { contains: search, mode: 'insensitive' } } },
-      { shippingAddress: { firstName: { contains: search, mode: 'insensitive' } } },
-      { shippingAddress: { lastName: { contains: search, mode: 'insensitive' } } },
-    ];
+      // Search by order ID (numeric)
+      ...(isNaN(orderId) ? [] : [
+        { id: { equals: orderId } },
+        { razorpayOrderId: { contains: searchTerm, mode: 'insensitive' } }
+      ]),
+      // Search by string order identifiers
+      { razorpayOrderId: { contains: searchTerm, mode: 'insensitive' } },
+      { printifyOrderId: { contains: searchTerm, mode: 'insensitive' } },
+      { trackingNumber: { contains: searchTerm, mode: 'insensitive' } },
+      // Search by user information
+      { 
+        user: {
+          OR: [
+            { name: { contains: searchTerm, mode: 'insensitive' } },
+            { email: { contains: searchTerm, mode: 'insensitive' } },
+            { phone: { contains: searchTerm, mode: 'insensitive' } }
+          ]
+        }
+      },
+      // Search in product names through order items
+      {
+        items: {
+          some: {
+            product: {
+              name: { contains: searchTerm, mode: 'insensitive' }
+            }
+          }
+        }
+      }
+    ].filter(Boolean); // Remove any empty arrays from spread
   }
 
   // Get orders with pagination
