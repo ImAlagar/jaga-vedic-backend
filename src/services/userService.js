@@ -157,63 +157,52 @@ export async function forgotPassword(email) {
     
     const user = await userModel.findUserByEmail(email.toLowerCase());
     
-    // Return success immediately regardless of whether user exists
+    // Security: Always return same message
     const successResponse = { 
       message: "If the email exists, a password reset link has been sent" 
     };
 
-    // If user doesn't exist or is inactive, still return success for security
     if (!user || !user.isActive) {
       console.log(`ℹ️  User not found or inactive: ${email}`);
       return successResponse;
     }
 
     const token = crypto.randomBytes(32).toString('hex');
-    const expiry = new Date(Date.now() + 15 * 60 * 1000); // 15 minutes
+    const expiry = new Date(Date.now() + 15 * 60 * 1000);
 
-    console.log(`📝 Generating reset token for user: ${user.email}`);
-
-    // Update user with reset token (non-blocking)
-    userModel.updateUser(
+    // Update user with reset token
+    await userModel.updateUser(
       { id: user.id },
       { 
         resetToken: token, 
         resetTokenExpiry: expiry,
         updatedAt: new Date()
       }
-    )
-    .then(() => {
-      console.log(`✅ Reset token saved for user: ${user.email}`);
-    })
-    .catch(error => {
-      console.error('❌ Failed to update user reset token:', error);
-    });
+    );
+
+    console.log(`✅ Reset token saved for user: ${user.email}`);
 
     const resetUrl = `${process.env.CLIENT_URL}/reset-password?token=${token}`;
-    console.log(`🔗 Reset URL generated: ${resetUrl}`);
+    console.log(`🔗 Reset URL: ${resetUrl}`);
 
-    // Send email ASYNCHRONOUSLY with enhanced logging
-    sendMail(
+    // Send email with better error handling
+    const emailResult = await sendMail(
       user.email,
       "Password Reset Request",
       getPasswordResetEmail(resetUrl, user.name)
-    )
-    .then(() => {
+    );
+
+    if (emailResult) {
       console.log(`✅ Password reset email sent to: ${user.email}`);
-    })
-    .catch(error => {
-      console.error('❌ Password reset email failed:', {
-        email: user.email,
-        error: error.message,
-        timestamp: new Date().toISOString()
-      });
-    });
+    } else {
+      console.log(`⚠️  Email queued but delivery not confirmed for: ${user.email}`);
+    }
 
     return successResponse;
 
   } catch (error) {
     console.error('❌ Forgot password error:', error);
-    // Still return success for security even if there's an error
+    // Still return success for security
     return { 
       message: "If the email exists, a password reset link has been sent" 
     };
