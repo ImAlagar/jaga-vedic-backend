@@ -87,6 +87,19 @@ enum CouponApplicability {
 // AUTHENTICATION & USERS
 // ======================
 
+// ======================
+// TOKEN BLACKLIST
+// ======================
+
+model TokenBlacklist {
+  id        Int      @id @default(autoincrement())
+  tokenHash String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@map("token_blacklist")
+}
+
 model Admin {
   id               Int      @id @default(autoincrement())
   email            String   @unique
@@ -94,6 +107,7 @@ model Admin {
   role             Role     @default(ADMIN)
   resetToken       String?  @unique
   resetTokenExpiry DateTime?
+  refreshToken     String?  @unique  // ADD THIS LINE
   createdAt        DateTime @default(now())
 
   @@map("admins")
@@ -112,6 +126,7 @@ model User {
   verificationToken String?   @unique
   resetToken        String?   @unique
   resetTokenExpiry  DateTime?
+  refreshToken      String?   @unique  // ADD THIS LINE
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
 

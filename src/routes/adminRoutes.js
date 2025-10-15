@@ -1,5 +1,5 @@
 import express from "express";
-import { forgotPassword, login, register, resetPassword } from "../controllers/adminController.js";
+import { forgotPassword, login, logout, register, resetPassword } from "../controllers/adminController.js";
 import { validateRequest } from "../middlewares/validateRequest.js";
 import { loginValidator, registerValidator, resetValidator } from "../validators/adminValidator.js";
 import { verifyAdminToken } from "../middlewares/authToken.js";
@@ -9,6 +9,7 @@ const router = express.Router();
 
 router.post("/register", registerValidator, validateRequest, register);
 router.post("/login", loginValidator, validateRequest, login );
+router.post("/logout", verifyAdminToken, logout); 
 router.post("/forgot-password", validateRequest, forgotPassword);
 router.post("/reset-password", resetValidator, validateRequest, resetPassword);
 

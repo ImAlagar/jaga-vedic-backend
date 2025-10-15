@@ -7,7 +7,8 @@ import {
   updateProfile,
   forgotPassword,
   resetPassword,
-  getUserById
+  getUserById,
+  logout
 } from "../controllers/userController.js";
 import {
   registerValidator,
@@ -22,10 +23,12 @@ const router = express.Router();
 // Public routes
 router.post("/register", registerValidator, validateRequest, register);
 router.post("/login", loginValidator, validateRequest, login);
+router.post("/logout", verifyUserToken, logout);
 router.post("/forgot-password", forgotPassword);
 router.post("/reset-password", resetPassword);
 
 // Protected routes
+
 router.get("/profile", verifyUserToken, getProfile);
 router.put("/profile", verifyUserToken, updateProfileValidator, validateRequest, updateProfile);
 

@@ -2,6 +2,7 @@
 import HttpStatus from "../constants/httpStatusCode.js";
 import * as userService from "../services/userService.js";
 import { successResponse, errorResponse } from "../utils/responseHandler.js";
+import { addToBlacklist } from "../utils/tokenBlacklist.js";
 
 export async function register(req, res) {
   try {
@@ -184,6 +185,34 @@ export async function getUserStats(req, res) {
       res, 
       stats, 
       "User stats retrieved successfully", 
+      HttpStatus.OK
+    );
+  } catch (error) {
+    return errorResponse(res, error, HttpStatus.INTERNAL_SERVER_ERROR);
+  }
+}
+
+export async function logout(req, res) {
+  try {
+    const authHeader = req.headers.authorization;
+    
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return errorResponse(res, "Token required for logout", HttpStatus.BAD_REQUEST);
+    }
+
+    const token = authHeader.split(' ')[1];
+    
+    // Add token to blacklist
+    const blacklisted = await addToBlacklist(token);
+    
+    if (!blacklisted) {
+      return errorResponse(res, "Failed to logout", HttpStatus.INTERNAL_SERVER_ERROR);
+    }
+
+    return successResponse(
+      res,
+      null,
+      "Logout successful",
       HttpStatus.OK
     );
   } catch (error) {

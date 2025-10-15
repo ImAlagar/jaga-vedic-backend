@@ -6,6 +6,7 @@ import crypto from "crypto";
 import { sendMail } from "../utils/mailer.js";
 import { getWelcomeEmail, getPasswordResetEmail, getPasswordResetSuccessEmail } from "../utils/emailTemplates.js";
 import logger from "../utils/logger.js";
+import { addToBlacklist } from "../utils/tokenBlacklist.js";
 
 
 
@@ -377,5 +378,30 @@ export async function getUserStats() {
     };
   } catch (error) {
     throw new Error(`Failed to get user stats: ${error.message}`);
+  }
+}
+
+
+export async function logoutUser(token, userId) {
+  try {
+    // Add token to blacklist
+    const blacklisted = await addToBlacklist(token);
+    
+    if (!blacklisted) {
+      throw new Error("Failed to blacklist token");
+    }
+
+    // Clear refresh token from database (if you implement refresh tokens later)
+    // await userModel.updateUser(
+    //   { id: userId },
+    //   { refreshToken: null }
+    // );
+
+    return { 
+      success: true, 
+      message: "Logout successful" 
+    };
+  } catch (error) {
+    throw new Error(`Logout failed: ${error.message}`);
   }
 }
