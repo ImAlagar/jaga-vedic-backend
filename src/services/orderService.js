@@ -2,7 +2,7 @@
 import prisma from "../config/prisma.js";
 import { PrintifyOrderService } from "./printifyOrderService.js";
 import { sendMail } from "../utils/mailer.js";
-import { getOrderConfirmationEmail, getAdminNewOrderEmail, getOrderShippedEmail } from "../utils/emailTemplates.js";
+import { getOrderConfirmationEmail, getAdminNewOrderEmail, getOrderShippedEmail, getOrderCancelledEmail, getAdminCancellationEmail } from "../utils/emailTemplates.js";
 import logger from "../utils/logger.js";
 import { ProductVariantService } from "./productVariantService.js";
 import { FulfillmentStatus, PaymentStatus } from "@prisma/client";
@@ -101,6 +101,7 @@ export class OrderService {
     return order;
   }
 
+
   async handleAsyncOperations(order) {
     try {
         await Promise.allSettled([
@@ -111,6 +112,7 @@ export class OrderService {
         logger.error(`Async operations error for order ${order.id}:`, error);
     }
   }
+
 
   async forwardToPrintify(order) {
     try {
@@ -141,25 +143,70 @@ export class OrderService {
     }
   }
 
-  async sendOrderNotifications(order) {
-    try {
-        await Promise.allSettled([
-            sendMail(
-                order.user.email,
-                `Order Confirmation - #${order.id}`,
-                getOrderConfirmationEmail(order)
-            ),
-            sendMail(
-                process.env.ADMIN_EMAIL,
-                `New Order - #${order.id}`,
-                getAdminNewOrderEmail(order)
-            )
-        ]);
-        logger.info(`📧 Notifications sent for order ${order.id}`);
-    } catch (mailErr) {
-        logger.error(`❌ Email sending failed: ${mailErr.message}`);
-    }
+async handleAsyncOperations(order) {
+  try {
+    await Promise.allSettled([
+      this.forwardToPrintify(order),
+      this.sendOrderNotifications(order)
+    ]);
+  } catch (error) {
+    logger.error(`Async operations error for order ${order.id}:`, error);
   }
+}
+
+async sendOrderNotifications(order) {
+  try {
+    // Validate order data before sending emails
+    if (!order.user?.email) {
+      throw new Error('Customer email not found in order data');
+    }
+
+    // Generate email content
+    let customerEmailHtml, adminEmailHtml;
+    
+    try {
+      customerEmailHtml = await getOrderConfirmationEmail(order);
+    } catch (templateError) {
+      logger.error('Customer email template error:', templateError);
+      customerEmailHtml = this.getFallbackOrderEmail(order);
+    }
+
+    try {
+      adminEmailHtml = await getAdminNewOrderEmail(order);
+    } catch (templateError) {
+      logger.error('Admin email template error:', templateError);
+      adminEmailHtml = this.getFallbackAdminEmail(order);
+    }
+
+    // Send emails
+    const emailPromises = [];
+    
+    // Customer email
+    emailPromises.push(
+      sendMail(
+        order.user.email,
+        `Order Confirmation - #${order.id}`,
+        customerEmailHtml
+      )
+    );
+
+    // Admin email (only if ADMIN_EMAIL is set)
+    if (process.env.ADMIN_EMAIL) {
+      emailPromises.push(
+        sendMail(
+          process.env.ADMIN_EMAIL,
+          `New Order - #${order.id}`,
+          adminEmailHtml
+        )
+      );
+    }
+
+    await Promise.allSettled(emailPromises);
+    
+  } catch (error) {
+    logger.error(`Email notification system error for order ${order.id}:`, error);
+  }
+}
 
   async debugOrderSync(orderId) {
     try {
@@ -403,90 +450,116 @@ export class OrderService {
     }
   }
 
-  async cancelOrder(orderId, reason = "Cancelled by customer", cancelledBy = 'user') {
-    try {
-      const order = await prisma.order.findUnique({
-        where: { id: orderId },
-        include: { 
-          user: true,
-          items: { include: { product: true } } 
-        }
-      });
-
-      if (!order) {
-        throw new Error("Order not found");
+// services/orderService.js
+async cancelOrder(orderId, reason = "Cancelled by customer", cancelledBy = 'user') {
+  try {
+    const order = await prisma.order.findUnique({
+      where: { id: orderId },
+      include: { 
+        user: true,
+        items: { include: { product: true } } 
       }
+    });
 
-      // Enhanced cancellation validation
-      const cancellableStatuses = ['PLACED', 'PENDING', 'PROCESSING'];
-      if (!cancellableStatuses.includes(order.fulfillmentStatus)) {
-        throw new Error(`Cannot cancel order with status: ${order.fulfillmentStatus}`);
-      }
-
-      // Determine refund eligibility
-      const isEligibleForRefund = order.paymentStatus === 'SUCCEEDED';
-      const refundAmount = isEligibleForRefund ? order.totalAmount : 0;
-
-      // Cancel in Printify first
-      let printifyCancellation = { success: false, message: '' };
-      if (order.printifyOrderId) {
-        try {
-          await this.printifyService.cancelOrder(order.printifyOrderId);
-          printifyCancellation = { 
-            success: true, 
-            message: 'Successfully cancelled in Printify' 
-          };
-          logger.info(`✅ Cancelled Printify order: ${order.printifyOrderId}`);
-        } catch (printifyError) {
-          printifyCancellation = { 
-            success: false, 
-            message: `Printify cancellation failed: ${printifyError.message}` 
-          };
-          logger.warn(`⚠️ Could not cancel Printify order: ${printifyError.message}`);
-        }
-      }
-
-      // Update order in database with enhanced cancellation data
-      const updatedOrder = await prisma.order.update({
-        where: { id: orderId },
-        data: {
-          fulfillmentStatus: 'CANCELLED',
-          paymentStatus: isEligibleForRefund ? 'REFUND_PENDING' : 'FAILED',
-          orderNotes: `${reason} | Requested by: ${cancelledBy} | Printify: ${printifyCancellation.message}`,
-          cancelledAt: new Date(),
-          cancellationReason: reason,
-          cancelledBy: cancelledBy,
-          refundStatus: isEligibleForRefund ? 'PENDING' : 'NOT_REQUIRED',
-          refundAmount: refundAmount,
-          refundRequestedAt: isEligibleForRefund ? new Date() : null
-        },
-        include: {
-          user: true,
-          items: { include: { product: true } }
-        }
-      });
-
-      // Initiate refund process if eligible
-      if (isEligibleForRefund) {
-        this.processRefund(updatedOrder, reason).catch(err => {
-          logger.error(`❌ Refund processing failed for order ${orderId}:`, err);
-        });
-      }
-
-      // Send notifications
-      await this.sendCancellationNotification(updatedOrder, reason, cancelledBy);
-
-      logger.info(`✅ Order ${orderId} cancelled successfully`);
-      return updatedOrder;
-    } catch (error) {
-      logger.error(`❌ Failed to cancel order ${orderId}:`, error);
-      throw error;
+    if (!order) {
+      throw new Error("Order not found");
     }
+
+    // Enhanced cancellation validation
+    const cancellableStatuses = ['PLACED', 'PENDING', 'PROCESSING'];
+    if (!cancellableStatuses.includes(order.fulfillmentStatus)) {
+      throw new Error(`Cannot cancel order with status: ${order.fulfillmentStatus}`);
+    }
+
+    // Determine refund eligibility
+    const isEligibleForRefund = order.paymentStatus === 'SUCCEEDED';
+    const refundAmount = isEligibleForRefund ? order.totalAmount : 0;
+
+    // Cancel in Printify first
+    let printifyCancellation = { success: false, message: '' };
+    if (order.printifyOrderId) {
+      try {
+        await this.printifyService.cancelOrder(order.printifyOrderId);
+        printifyCancellation = { 
+          success: true, 
+          message: 'Successfully cancelled in Printify' 
+        };
+        logger.info(`✅ Cancelled Printify order: ${order.printifyOrderId}`);
+      } catch (printifyError) {
+        printifyCancellation = { 
+          success: false, 
+          message: `Printify cancellation failed: ${printifyError.message}` 
+        };
+        logger.warn(`⚠️ Could not cancel Printify order: ${printifyError.message}`);
+      }
+    }
+
+    // Update order in database with enhanced cancellation data
+    const updatedOrder = await prisma.order.update({
+      where: { id: orderId },
+      data: {
+        fulfillmentStatus: 'CANCELLED',
+        paymentStatus: isEligibleForRefund ? 'REFUND_PENDING' : 'FAILED',
+        orderNotes: `${reason} | Requested by: ${cancelledBy} | Printify: ${printifyCancellation.message}`,
+        cancelledAt: new Date(),
+        cancellationReason: reason,
+        cancelledBy: cancelledBy,
+        refundStatus: isEligibleForRefund ? 'PENDING' : 'NOT_REQUIRED',
+        refundAmount: refundAmount,
+        refundRequestedAt: isEligibleForRefund ? new Date() : null
+      },
+      include: {
+        user: true,
+        items: { include: { product: true } }
+      }
+    });
+
+    // Send cancellation notifications to both customer and admin
+    await this.sendCancellationNotifications(updatedOrder, reason, cancelledBy);
+
+    // Initiate refund process if eligible
+    if (isEligibleForRefund) {
+      this.processRefund(updatedOrder, reason).catch(err => {
+        logger.error(`❌ Refund processing failed for order ${orderId}:`, err);
+      });
+    }
+
+    logger.info(`✅ Order ${orderId} cancelled successfully`);
+    return updatedOrder;
+  } catch (error) {
+    logger.error(`❌ Failed to cancel order ${orderId}:`, error);
+    throw error;
   }
+}
+
+async sendCancellationNotifications(order, reason, cancelledBy) {
+  try {
+    // Send email to customer
+    const customerEmailContent = await getOrderCancelledEmail(order, reason, cancelledBy);
+    await sendMail(
+      order.user.email,
+      `Order #${order.id} Cancellation Confirmation - Agumiya Collections`,
+      customerEmailContent
+    );
+
+    // Send email to admin
+    const adminEmailContent = getAdminCancellationEmail(order, reason, cancelledBy);
+    await sendMail(
+      process.env.ADMIN_EMAIL || 'admin@agumiyacollections.com',
+      `🚨 Order Cancellation Alert - #${order.id}`,
+      adminEmailContent
+    );
+
+    logger.info(`📧 Cancellation notifications sent to customer and admin for order ${order.id}`);
+  } catch (error) {
+    logger.error(`❌ Failed to send cancellation notifications:`, error);
+    throw error;
+  }
+}
+
 
 async processRefund(order, reason = "Order cancellation") {
   try {
-    console.log('🔄 Starting refund process for order:', order.id);
     
     // Enhanced validation
     if (!order.razorpayPaymentId) {
@@ -496,13 +569,6 @@ async processRefund(order, reason = "Order cancellation") {
     if (!order.refundAmount || order.refundAmount <= 0) {
       throw new Error(`Invalid refund amount: ${order.refundAmount}`);
     }
-
-    console.log('📋 Refund details:', {
-      orderId: order.id,
-      paymentId: order.razorpayPaymentId,
-      refundAmount: order.refundAmount,
-      reason: reason
-    });
 
     // Update refund status to processing
     await prisma.order.update({
@@ -516,7 +582,6 @@ async processRefund(order, reason = "Order cancellation") {
       order.refundAmount
     );
 
-    console.log('✅ Razorpay refund successful:', refund.id);
 
     // Create refund record
     const refundRecord = await prisma.refund.create({
@@ -585,30 +650,9 @@ async processRefund(order, reason = "Order cancellation") {
 }
 
 
-  async sendCancellationNotification(order, reason, cancelledBy) {
-    try {
-      const emailContent = getOrderCancelledEmail(order, reason, cancelledBy);
-      
-      await sendMail(
-        order.user.email,
-        `Order #${order.id} Cancelled`,
-        emailContent
-      );
 
-      // Also notify admin for all cancellations
-      await sendMail(
-        process.env.ADMIN_EMAIL,
-        `Order Cancellation - #${order.id}`,
-        `Order #${order.id} has been cancelled by ${cancelledBy}.\n\nReason: ${reason}\nCustomer: ${order.user.name} (${order.user.email})\nAmount: ₹${order.totalAmount}\nRefund Status: ${order.refundStatus}`
-      );
 
-      logger.info(`📧 Cancellation notifications sent for order ${order.id}`);
-    } catch (error) {
-      logger.error(`❌ Failed to send cancellation notification: ${error.message}`);
-    }
-  }
-
-  async sendRefundNotification(order, refundId) {
+async sendRefundNotification(order, refundId) {
     try {
       const emailContent = getRefundProcessedEmail(order, refundId);
       
@@ -622,9 +666,9 @@ async processRefund(order, reason = "Order cancellation") {
     } catch (error) {
       logger.error(`❌ Failed to send refund notification: ${error.message}`);
     }
-  }
+}
 
-  async getCancelledOrders(filters = {}) {
+async getCancelledOrders(filters = {}) {
     const where = {
       fulfillmentStatus: 'CANCELLED',
       ...filters
@@ -650,7 +694,7 @@ async processRefund(order, reason = "Order cancellation") {
       },
       orderBy: { cancelledAt: 'desc' }
     });
-  }
+}
 
   async getCancellationStats() {
     const [totalCancelled, pendingRefunds, completedRefunds, cancelledThisMonth] = await Promise.all([

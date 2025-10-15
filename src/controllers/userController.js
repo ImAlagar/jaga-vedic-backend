@@ -83,11 +83,9 @@ export async function forgotPassword(req, res) {
   try {
     const { email } = req.body;
     
-    console.log(`🔑 Forgot password request for: ${email}`);
     
     const result = await userService.forgotPassword(email);
     
-    console.log(`✅ Forgot password processed for: ${email}`);
     
     return successResponse(
       res, 
@@ -105,11 +103,9 @@ export async function resetPassword(req, res) {
   try {
     const { token, newPassword } = req.body;
     
-    console.log(`🔄 Password reset attempt with token`);
     
     const result = await userService.resetPassword(token, newPassword);
     
-    console.log(`✅ Password reset successful`);
     
     return successResponse(
       res, 

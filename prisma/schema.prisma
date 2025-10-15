@@ -8,269 +8,10 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-//
-// 🔹 Admin Table
-//
-model Admin {
-  id               Int      @id @default(autoincrement())
-  email            String   @unique
-  password         String
-  role             Role     @default(ADMIN)
-  resetToken       String?  @unique
-  resetTokenExpiry DateTime?
-  createdAt        DateTime @default(now())
+// ======================
+// ENUMS
+// ======================
 
-  @@map("admins")
-}
-
-//
-// 🔹 User Table
-//
-model User {
-  id                Int       @id @default(autoincrement())
-  name              String
-  email             String    @unique
-  password          String
-  phone             String?
-  address           String?
-  razorpayCustomerId String?  @unique
-  isActive          Boolean   @default(true)
-  emailVerified     Boolean   @default(false)
-  verificationToken String?   @unique
-  resetToken        String?   @unique
-  resetTokenExpiry  DateTime?
-  createdAt         DateTime  @default(now())
-  updatedAt         DateTime  @updatedAt
-
-  orders            Order[]
-  couponUsages      CouponUsage[]
-  paymentLogs       PaymentLog[]
-
-  @@map("users")
-}
-
-//
-// 🔹 Product Table (Synced from Printify)
-//
-model Product {
-  id                Int       @id @default(autoincrement())
-  name              String
-  description       String
-  price             Float
-  images            String[]
-  printifyProductId String    @unique
-  sku               String?
-  category          String?
-  inStock           Boolean   @default(true)
-  isPublished       Boolean   @default(false)
-  
-  // Printify-specific fields
-  printifyVariants          Json?
-  printifyBlueprintId       Int?
-  printifyPrintProviderId   Int?
-  
-  createdAt         DateTime  @default(now())
-  updatedAt         DateTime  @updatedAt
-
-  orderItems        OrderItem[]
-
-  @@map("products")
-}
-
-//
-// 🔹 Order Table (Razorpay Only)
-//
-model Order {
-  id                  Int              @id @default(autoincrement())
-  userId              Int
-  totalAmount         Float
-  subtotalAmount      Float            // Amount before discount
-  paymentStatus       PaymentStatus    @default(PENDING)
-  fulfillmentStatus   FulfillmentStatus @default(PLACED)
-  
-  // Razorpay fields
-  razorpayOrderId     String?          @unique
-  razorpayPaymentId   String?          @unique
-  razorpayRefundId    String?          @unique
-  
-  // Shipping & Tracking
-  shippingAddress     Json?
-  trackingNumber      String?
-  trackingUrl         String?
-  carrier             String?
-  shipmentDate        DateTime?
-  estimatedDelivery   DateTime?
-  
-  // Printify integration fields
-  printifyOrderId     String?          @unique
-  printifyStatus      String?
-  orderImage          String?          // Custom design image
-  orderNotes          String?          // Special instructions
-  
-  // Coupon fields
-  couponCode          String?
-  discountAmount      Float?           @default(0)
-  couponId            Int?
-  
-  // Cancellation & Refund fields
-  cancelledAt         DateTime?
-  cancellationReason String?
-  cancelledBy         String?          // 'user' or 'admin'
-  refundStatus        RefundStatus?    @default(PENDING)
-  refundAmount        Float?
-  refundRequestedAt   DateTime?
-  refundProcessedAt   DateTime?
-  
-  // Timestamps
-  createdAt           DateTime         @default(now())  
-  updatedAt           DateTime?        @updatedAt
-
-  // Relations
-  user        User       @relation(fields: [userId], references: [id], onDelete: Cascade)
-  items       OrderItem[]
-  couponUsage CouponUsage?
-  paymentLogs PaymentLog[]
-  refunds     Refund[]
-
-  @@map("orders")
-}
-
-// 🔹 OrderItem Table
-//
-model OrderItem {
-  id                  Int     @id @default(autoincrement())
-  orderId             Int
-  productId           Int
-  quantity            Int
-  price               Float
-
-  // Printify specific fields
-  printifyVariantId       String?
-  printifyBlueprintId     Int?
-  printifyPrintProviderId Int?
-  size                 String?
-  color                String?
-
-  order   Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  product Product @relation(fields: [productId], references: [id])
-
-  @@unique([orderId, productId, printifyVariantId])
-  @@map("order_items")
-}
-
-//
-// 🔹 Coupon Code Table
-//
-model Coupon {
-  id               Int       @id @default(autoincrement())
-  code             String    @unique
-  description      String?
-  discountType     DiscountType @default(PERCENTAGE)
-  discountValue    Float
-  minOrderAmount   Float?    @default(0)
-  maxDiscountAmount Float?
-  usageLimit       Int?
-  usedCount        Int       @default(0)
-  validFrom        DateTime  @default(now())
-  validUntil       DateTime?
-  isActive         Boolean   @default(true)
-  isSingleUse      Boolean   @default(false)
-  applicableTo     CouponApplicability @default(ALL_PRODUCTS)
-  categories       String[]
-  products         Int[]
-  createdAt        DateTime  @default(now())
-  updatedAt        DateTime  @updatedAt
-
-  couponUsages CouponUsage[]
-
-  @@map("coupons")
-}
-
-//
-// 🔹 Coupon Usage Table
-//
-model CouponUsage {
-  id        Int      @id @default(autoincrement())
-  couponId  Int
-  userId    Int
-  orderId   Int
-  usedAt    DateTime @default(now())
-
-  coupon Coupon @relation(fields: [couponId], references: [id], onDelete: Cascade)
-  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
-  order  Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
-
-  @@unique([couponId, userId])
-  @@unique([orderId])
-  @@map("coupon_usages")
-}
-
-//
-// 🔹 Payment Log Table
-//
-model PaymentLog {
-  id           Int      @id @default(autoincrement())
-  orderId      Int
-  userId       Int?
-  paymentId    String   @unique
-  amount       Float
-  currency     String   @default("INR")
-  status       String   // CAPTURED, FAILED, REFUNDED
-  gateway      String   @default("RAZORPAY")
-  errorMessage String?
-  rawResponse  Json?
-  createdAt    DateTime @default(now())
-
-  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  user  User? @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@map("payment_logs")
-}
-
-//
-// 🔹 Refund Table
-//
-model Refund {
-  id          Int       @id @default(autoincrement())
-  orderId     Int
-  refundId    String    @unique
-  amount      Float
-  status      RefundStatus
-  reason      String?
-  processedAt DateTime
-  notes       String?
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
-
-  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
-
-  @@map("refunds")
-}
-
-//
-// 🔹 Contact Inquiry Table
-//
-model ContactInquiry {
-  id              Int       @id @default(autoincrement())
-  name            String
-  email           String
-  phone           String?
-  subject         String
-  message         String
-  inquiryType     InquiryType @default(GENERAL)
-  status          InquiryStatus @default(PENDING)
-  callbackTime    DateTime?
-  adminNotes      String?
-  country         String?
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
-
-  @@map("contact_inquiries")
-}
-
-//
-// 🔹 Enums
-//
 enum Role {
   ADMIN
   SUPER_ADMIN
@@ -302,6 +43,16 @@ enum RefundStatus {
   NOT_REQUIRED
 }
 
+enum ShippingStatus {
+  PENDING
+  LABEL_CREATED
+  IN_TRANSIT
+  OUT_FOR_DELIVERY
+  DELIVERED
+  FAILED
+  RETURNED
+}
+
 enum InquiryType {
   GENERAL
   ORDER_SUPPORT
@@ -330,4 +81,446 @@ enum CouponApplicability {
   ALL_PRODUCTS
   CATEGORY_SPECIFIC
   PRODUCT_SPECIFIC
+}
+
+// ======================
+// AUTHENTICATION & USERS
+// ======================
+
+model Admin {
+  id               Int      @id @default(autoincrement())
+  email            String   @unique
+  password         String
+  role             Role     @default(ADMIN)
+  resetToken       String?  @unique
+  resetTokenExpiry DateTime?
+  createdAt        DateTime @default(now())
+
+  @@map("admins")
+}
+
+model User {
+  id                Int       @id @default(autoincrement())
+  name              String
+  email             String    @unique
+  password          String
+  phone             String?
+  address           String?
+  razorpayCustomerId String?  @unique
+  isActive          Boolean   @default(true)
+  emailVerified     Boolean   @default(false)
+  verificationToken String?   @unique
+  resetToken        String?   @unique
+  resetTokenExpiry  DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  // Relations
+  orders            Order[]
+  couponUsages      CouponUsage[]
+  paymentLogs       PaymentLog[]
+  reviews           Review[]
+  helpfulVotes      HelpfulVote[]
+
+  @@map("users")
+}
+
+// ======================
+// PRODUCT CATALOG
+// ======================
+
+model Product {
+  id                Int       @id @default(autoincrement())
+  name              String
+  description       String
+  price             Float
+  images            String[]
+  printifyProductId String    @unique
+  sku               String?
+  category          String?
+  inStock           Boolean   @default(true)
+  isPublished       Boolean   @default(false)
+  
+  // Printify-specific fields
+  printifyVariants          Json?
+  printifyBlueprintId       Int?
+  printifyPrintProviderId   Int?
+  
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  // Relations
+  orderItems        OrderItem[]
+  shippingCache     PrintifyShippingCache[]
+  reviewSummary     ProductReviewSummary?
+  reviews           Review[]
+
+  @@map("products")
+  ProductTaxOverride ProductTaxOverride[]
+}
+
+model PrintifyShippingCache {
+  id              Int       @id @default(autoincrement())
+  productId       Int
+  variantId       Int
+  country         String
+  region          String?
+  shippingCost    Float
+  shippingMethod  Int
+  estimatedDays   Json?
+  isAvailable     Boolean   @default(true)
+  cachedAt        DateTime  @default(now())
+  expiresAt       DateTime
+
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([productId, variantId, country, region])
+  @@map("printify_shipping_cache")
+}
+
+// ======================
+// PROMOTIONS & COUPONS
+// ======================
+
+model Coupon {
+  id               Int       @id @default(autoincrement())
+  code             String    @unique
+  description      String?
+  discountType     DiscountType @default(PERCENTAGE)
+  discountValue    Float
+  minOrderAmount   Float?    @default(0)
+  maxDiscountAmount Float?
+  usageLimit       Int?
+  usedCount        Int       @default(0)
+  validFrom        DateTime  @default(now())
+  validUntil       DateTime?
+  isActive         Boolean   @default(true)
+  isSingleUse      Boolean   @default(false)
+  applicableTo     CouponApplicability @default(ALL_PRODUCTS)
+  categories       String[]
+  products         Int[]
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  couponUsages CouponUsage[]
+
+  @@map("coupons")
+}
+
+model CouponUsage {
+  id        Int      @id @default(autoincrement())
+  couponId  Int
+  userId    Int
+  orderId   Int
+  usedAt    DateTime @default(now())
+
+  coupon Coupon @relation(fields: [couponId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  order  Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@unique([couponId, userId])
+  @@unique([orderId])
+  @@map("coupon_usages")
+}
+
+// ======================
+// ORDER MANAGEMENT
+// ======================
+
+model Order {
+  id                  Int              @id @default(autoincrement())
+  userId              Int
+  totalAmount         Float
+  subtotalAmount      Float
+  paymentStatus       PaymentStatus    @default(PENDING)
+  fulfillmentStatus   FulfillmentStatus @default(PLACED)
+  
+  // Razorpay fields
+  razorpayOrderId     String?          @unique
+  razorpayPaymentId   String?          @unique
+  razorpayRefundId    String?          @unique
+  
+  // Shipping & Tracking
+  shippingAddress     Json?
+  trackingNumber      String?
+  trackingUrl         String?
+  carrier             String?
+  shipmentDate        DateTime?
+  estimatedDelivery   DateTime?
+  
+  // Printify integration
+  printifyOrderId     String?          @unique
+  printifyStatus      String?
+  orderImage          String?
+  orderNotes          String?
+  
+  // Coupon fields
+  couponCode          String?
+  discountAmount      Float?           @default(0)
+  couponId            Int?
+  
+  // Cancellation & Refund
+  cancelledAt         DateTime?
+  cancellationReason String?
+  cancelledBy         String?
+  refundStatus        RefundStatus?    @default(PENDING)
+  refundAmount        Float?
+  refundRequestedAt   DateTime?
+  refundProcessedAt   DateTime?
+  
+  // Timestamps
+  createdAt           DateTime         @default(now())  
+  updatedAt           DateTime?        @updatedAt
+
+  // Relations
+  user        User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  items       OrderItem[]
+  couponUsage CouponUsage?
+  paymentLogs PaymentLog[]
+  refunds     Refund[]
+  shipping    OrderShipping[]
+  reviews     Review[]
+
+  @@map("orders")
+}
+
+model OrderItem {
+  id                  Int     @id @default(autoincrement())
+  orderId             Int
+  productId           Int
+  quantity            Int
+  price               Float
+
+  // Printify specific fields
+  printifyVariantId       String?
+  printifyBlueprintId     Int?
+  printifyPrintProviderId Int?
+  size                 String?
+  color                String?
+
+  order   Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [id])
+
+  @@unique([orderId, productId, printifyVariantId])
+  @@map("order_items")
+}
+
+// ======================
+// PAYMENT & FINANCIALS
+// ======================
+
+model PaymentLog {
+  id           Int      @id @default(autoincrement())
+  orderId      Int
+  userId       Int?
+  paymentId    String   @unique
+  amount       Float
+  currency     String   @default("INR")
+  status       String
+  gateway      String   @default("RAZORPAY")
+  errorMessage String?
+  rawResponse  Json?
+  createdAt    DateTime @default(now())
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  user  User? @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("payment_logs")
+}
+
+model Refund {
+  id          Int       @id @default(autoincrement())
+  orderId     Int
+  refundId    String    @unique
+  amount      Float
+  status      RefundStatus
+  reason      String?
+  processedAt DateTime
+  notes       String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@map("refunds")
+}
+
+// ======================
+// SHIPPING & FULFILLMENT
+// ======================
+
+model OrderShipping {
+  id                  Int       @id @default(autoincrement())
+  orderId             Int
+  printifyOrderId     String?
+  trackingNumber      String?
+  trackingUrl         String?
+  carrier             String?
+  shippingCost        Float
+  shippingMethod      Int?
+  shipmentDate        DateTime?
+  estimatedDelivery   DateTime?
+  actualDelivery      DateTime?
+  status              ShippingStatus @default(PENDING)
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@map("order_shipping")
+}
+
+// ======================
+// REVIEWS & RATINGS
+// ======================
+
+model Review {
+  id          Int       @id @default(autoincrement())
+  userId      Int
+  productId   Int
+  orderId     Int
+  rating      Int
+  title       String?
+  comment     String?
+  images      String[]
+  isVerified  Boolean   @default(false)
+  isApproved  Boolean   @default(false)
+  isHelpful   Int       @default(0)
+  isReported  Boolean   @default(false)
+  reportReason String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  // Relations
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  order   Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  helpfulVotes HelpfulVote[]
+
+  @@unique([userId, productId, orderId])
+  @@map("reviews")
+}
+
+model HelpfulVote {
+  id       Int     @id @default(autoincrement())
+  reviewId Int
+  userId   Int
+  isHelpful Boolean @default(true)
+
+  review Review @relation(fields: [reviewId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([reviewId, userId])
+  @@map("helpful_votes")
+}
+
+model ProductReviewSummary {
+  id                Int     @id @default(autoincrement())
+  productId         Int     @unique
+  averageRating     Float   @default(0)
+  totalReviews      Int     @default(0)
+  ratingDistribution Json
+  totalHelpfulVotes Int     @default(0)
+  lastCalculatedAt  DateTime @default(now())
+
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@map("product_review_summaries")
+}
+
+// ======================
+// CUSTOMER SUPPORT
+// ======================
+
+model ContactInquiry {
+  id              Int       @id @default(autoincrement())
+  name            String
+  email           String
+  phone           String?
+  subject         String
+  message         String
+  inquiryType     InquiryType @default(GENERAL)
+  status          InquiryStatus @default(PENDING)
+  callbackTime    DateTime?
+  adminNotes      String?
+  country         String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@map("contact_inquiries")
+}
+
+// ======================
+// TAX CONFIGURATION
+// ======================
+
+enum TaxType {
+  VAT
+  GST
+  SALES_TAX
+  CUSTOM
+}
+
+enum TaxCalculationType {
+  PERCENTAGE
+  FIXED_AMOUNT
+}
+
+enum TaxInclusionType {
+  EXCLUSIVE  // Tax added to product price
+  INCLUSIVE  // Tax included in product price
+}
+
+model TaxSetting {
+  id                  Int                 @id @default(autoincrement())
+  name                String
+  taxType             TaxType
+  calculationType     TaxCalculationType  @default(PERCENTAGE)
+  inclusionType       TaxInclusionType    @default(EXCLUSIVE)
+  defaultRate         Float               @default(0) // Default tax rate in percentage
+  isActive            Boolean             @default(true)
+  createdAt           DateTime            @default(now())
+  updatedAt           DateTime            @updatedAt
+
+  // Relations
+  countryTaxRates     CountryTaxRate[]
+  productTaxOverrides ProductTaxOverride[]
+
+  @@map("tax_settings")
+}
+
+model CountryTaxRate {
+  id              Int       @id @default(autoincrement())
+  taxSettingId    Int
+  countryCode     String    // ISO 3166-1 alpha-2 code
+  countryName     String
+  taxRate         Float     // Tax rate in percentage
+  regionRates     Json?     // Store region-specific rates if needed
+  isActive        Boolean   @default(true)
+  appliesToShipping Boolean @default(false)
+  priority        Int       @default(0) // For multiple tax rules
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  taxSetting TaxSetting @relation(fields: [taxSettingId], references: [id], onDelete: Cascade)
+
+  @@unique([taxSettingId, countryCode])
+  @@map("country_tax_rates")
+}
+
+model ProductTaxOverride {
+  id              Int       @id @default(autoincrement())
+  taxSettingId    Int
+  productId       Int
+  taxRate         Float?    // Override rate (null means use default)
+  isTaxExempt     Boolean   @default(false)
+  taxCode         String?   // Product-specific tax code
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  taxSetting TaxSetting @relation(fields: [taxSettingId], references: [id], onDelete: Cascade)
+  product    Product    @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([taxSettingId, productId])
+  @@map("product_tax_overrides")
 }

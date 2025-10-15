@@ -10,12 +10,12 @@ export async function sendMail(to, subject, html) {
       pass: process.env.SMTP_PASS,
     },
     tls: {
-      rejectUnauthorized: false // ⚠️ Only for development!
+      rejectUnauthorized: false
     }
   });
 
   return transporter.sendMail({
-    from: `"Tech Buddyzz" <${process.env.SMTP_USER}>`,
+    from: `"Agumiya Collections" <${process.env.SMTP_USER}>`,
     to,
     subject,
     html,

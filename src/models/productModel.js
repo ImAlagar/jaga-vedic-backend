@@ -115,7 +115,6 @@ export async function findAllProducts(
       ].filter(condition => Object.keys(condition).length > 0)
     };
 
-    console.log('🔍 Database query where clause:', JSON.stringify(whereClause, null, 2));
 
     const [products, totalCount] = await Promise.all([
       prisma.product.findMany({
@@ -142,7 +141,6 @@ export async function findAllProducts(
       prisma.product.count({ where: whereClause })
     ]);
 
-    console.log(`📊 Found ${products.length} products out of ${totalCount} total`);
 
     const totalPages = Math.ceil(totalCount / limit);
 

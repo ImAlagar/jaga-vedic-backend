@@ -148,7 +148,7 @@ export async function resetPassword(token, newPassword) {
     // Send confirmation email
     await sendMail(
       admin.email,
-      "Password Reset Successful - Tech Buddyzz Admin",
+      "Password Reset Successful - Agumiya Collections Admin",
       getPasswordResetSuccessEmail(admin.email.split('@')[0])
     );
 

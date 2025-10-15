@@ -12,7 +12,10 @@ import {
   getProductsByCategory,
   deleteProduct,
   deletePrintifyProduct,
-  bulkDeleteProducts
+  bulkDeleteProducts,
+  getProductsWithReviewStats,
+  getProductReviews,
+  getProductReviewStats
 } from "../controllers/productController.js";
 import { 
   productSyncValidator, 
@@ -34,6 +37,10 @@ router.get("/category/:category", getProductsByCategory);
 router.get("/sync/:shopId", productSyncValidator, validateRequest, syncProducts);
 router.get("/debug/info", verifyAdminToken, debugProducts);
 
+// Add these routes BEFORE your dynamic routes
+router.get("/with-reviews", getProductsWithReviewStats); // For home page with review data
+router.get("/:productId/reviews", getProductReviews); // For individual product reviews
+router.get("/:productId/review-stats", getProductReviewStats); // Just stats for product cards
 // ✅ DELETE routes (before dynamic routes) - Admin only
 router.delete("/bulk-delete", verifyAdminToken, bulkDeleteProducts);
 router.delete("/printify/:shopId/:printifyProductId", verifyAdminToken, deletePrintifyProduct);

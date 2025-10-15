@@ -203,7 +203,6 @@ export async function getFilteredProducts(filters, options) {
   const { page = 1, limit = 12, sortBy = "createdAt", sortOrder = "desc" } = options;
   const offset = (page - 1) * limit;
 
-  console.log('🔍 Filtered products query:', { filters, page, limit, offset });
 
   // Build comprehensive where clause
   const whereClause = {
@@ -250,7 +249,6 @@ export async function getFilteredProducts(filters, options) {
     ].filter(condition => Object.keys(condition).length > 0)
   };
 
-  console.log('📋 Final where clause:', JSON.stringify(whereClause, null, 2));
 
   // Get filtered products
   const [products, total] = await Promise.all([
@@ -310,9 +308,7 @@ export async function getFilteredProducts(filters, options) {
     }
   };
 
-  console.log(`📊 Filter results: ${products.length} products found out of ${total}`);
-  console.log(`💰 Price range for filtered products: ${priceStats._min.price} - ${priceStats._max.price}`);
-  
+
   return result;
 }
 
@@ -443,7 +439,6 @@ export async function getProductsByCategory(category, page = 1, limit = 12) {
       }
     };
 
-    console.log(`🔍 Fetching products for category: ${category}`);
 
     const [products, totalCount] = await Promise.all([
       prisma.product.findMany({
@@ -470,7 +465,6 @@ export async function getProductsByCategory(category, page = 1, limit = 12) {
       prisma.product.count({ where: whereClause })
     ]);
 
-    console.log(`📊 Found ${products.length} products in category "${category}" out of ${totalCount} total`);
 
     const totalPages = Math.ceil(totalCount / limit);
 
@@ -599,3 +593,245 @@ export async function bulkDeleteProducts(productIds) {
   }
 }
 
+// Add these functions to your productService.js
+export async function getProductReviews(productId, page = 1, limit = 10, sortBy = 'createdAt', sortOrder = 'desc') {
+  try {
+    const skip = (page - 1) * limit;
+
+    const [reviews, totalCount, reviewSummary] = await Promise.all([
+      // Get paginated reviews
+      prisma.review.findMany({
+        where: {
+          productId: productId,
+          isApproved: true // Only show approved reviews
+        },
+        include: {
+          user: {
+            select: {
+              id: true,
+              name: true,
+              email: true
+            }
+          },
+          helpfulVotes: {
+            select: {
+              userId: true,
+              isHelpful: true
+            }
+          }
+        },
+        orderBy: { [sortBy]: sortOrder },
+        skip: skip,
+        take: limit
+      }),
+      
+      // Get total count
+      prisma.review.count({
+        where: {
+          productId: productId,
+          isApproved: true
+        }
+      }),
+      
+      // Get review summary
+      prisma.productReviewSummary.findUnique({
+        where: { productId: productId }
+      })
+    ]);
+
+    // Format reviews with helpful count and user vote status
+    const formattedReviews = reviews.map(review => ({
+      id: review.id,
+      userId: review.user.id,
+      userName: review.user.name,
+      userEmail: review.user.email,
+      rating: review.rating,
+      title: review.title,
+      comment: review.comment,
+      images: review.images,
+      isVerified: review.isVerified,
+      helpfulCount: review.helpfulVotes.filter(vote => vote.isHelpful).length,
+      hasVoted: false, // This would be set based on current user
+      createdAt: review.createdAt,
+      updatedAt: review.updatedAt
+    }));
+
+    const totalPages = Math.ceil(totalCount / limit);
+
+    return {
+      success: true,
+      data: {
+        reviews: formattedReviews,
+        stats: reviewSummary || {
+          averageRating: 0,
+          totalReviews: 0,
+          ratingDistribution: { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 }
+        },
+        pagination: {
+          currentPage: page,
+          totalPages: totalPages,
+          totalCount: totalCount,
+          limit: limit,
+          hasNext: page < totalPages,
+          hasPrev: page > 1
+        }
+      }
+    };
+  } catch (error) {
+    console.error("Error fetching product reviews:", error);
+    throw new Error(`Failed to fetch product reviews: ${error.message}`);
+  }
+}
+
+export async function getProductReviewStats(productId) {
+  try {
+    const reviewSummary = await prisma.productReviewSummary.findUnique({
+      where: { productId: productId }
+    });
+
+    // If no summary exists, calculate basic stats
+    if (!reviewSummary) {
+      const reviews = await prisma.review.findMany({
+        where: {
+          productId: productId,
+          isApproved: true
+        },
+        select: {
+          rating: true,
+          helpfulVotes: true
+        }
+      });
+
+      if (reviews.length === 0) {
+        return {
+          averageRating: 0,
+          totalReviews: 0,
+          ratingDistribution: { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 },
+          totalHelpfulVotes: 0
+        };
+      }
+
+      const totalReviews = reviews.length;
+      const averageRating = reviews.reduce((sum, review) => sum + review.rating, 0) / totalReviews;
+      
+      const ratingDistribution = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
+      reviews.forEach(review => {
+        ratingDistribution[review.rating]++;
+      });
+
+      const totalHelpfulVotes = reviews.reduce((sum, review) => 
+        sum + review.helpfulVotes.length, 0
+      );
+
+      return {
+        averageRating: Math.round(averageRating * 10) / 10,
+        totalReviews,
+        ratingDistribution,
+        totalHelpfulVotes
+      };
+    }
+
+    return reviewSummary;
+  } catch (error) {
+    console.error("Error fetching product review stats:", error);
+    throw new Error(`Failed to fetch product review stats: ${error.message}`);
+  }
+}
+
+export async function getProductsWithReviewStats(page = 1, limit = 12, category = '', search = '') {
+  try {
+    const skip = (page - 1) * limit;
+    
+    // Build where clause
+    const whereClause = {
+      isPublished: true,
+      AND: [
+        category ? { category: { equals: category, mode: 'insensitive' } } : {},
+        search ? {
+          OR: [
+            { name: { contains: search, mode: 'insensitive' } },
+            { description: { contains: search, mode: 'insensitive' } }
+          ]
+        } : {}
+      ].filter(condition => Object.keys(condition).length > 0)
+    };
+
+    // Get products
+    const [products, totalCount] = await Promise.all([
+      prisma.product.findMany({
+        where: whereClause,
+        select: {
+          id: true,
+          name: true,
+          description: true,
+          price: true,
+          images: true,
+          category: true,
+          inStock: true,
+          isPublished: true,
+          sku: true,
+          printifyProductId: true,
+          createdAt: true,
+          updatedAt: true
+        },
+        orderBy: { createdAt: 'desc' },
+        skip: skip,
+        take: limit
+      }),
+      prisma.product.count({ where: whereClause })
+    ]);
+
+    // Get review stats for all products in one query
+    const productIds = products.map(product => product.id);
+    const reviewSummaries = await prisma.productReviewSummary.findMany({
+      where: {
+        productId: {
+          in: productIds
+        }
+      }
+    });
+
+    // Create a map for quick lookup
+    const reviewStatsMap = new Map();
+    reviewSummaries.forEach(summary => {
+      reviewStatsMap.set(summary.productId, summary);
+    });
+
+    // Combine products with their review stats
+    const productsWithReviews = products.map(product => {
+      const reviewStats = reviewStatsMap.get(product.id) || {
+        averageRating: 0,
+        totalReviews: 0,
+        ratingDistribution: { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 },
+        totalHelpfulVotes: 0
+      };
+
+      return {
+        ...product,
+        reviewStats: {
+          averageRating: reviewStats.averageRating,
+          totalReviews: reviewStats.totalReviews,
+          ratingDistribution: reviewStats.ratingDistribution
+        }
+      };
+    });
+
+    const totalPages = Math.ceil(totalCount / limit);
+
+    return {
+      success: true,
+      data: productsWithReviews,
+      pagination: {
+        currentPage: page,
+        totalPages: totalPages,
+        totalCount: totalCount,
+        limit: limit,
+        hasNext: page < totalPages,
+        hasPrev: page > 1
+      }
+    };
+  } catch (error) {
+    console.error("Error fetching products with review stats:", error);
+    throw new Error(`Failed to fetch products with review stats: ${error.message}`);
+  }
+}

@@ -3,42 +3,18 @@ import * as couponModel from "../models/couponModel.js";
 export class CouponService {
 async validateCoupon(code, userId, cartItems, subtotal) {
   try {
-    console.log('🔍 [BACKEND] Starting coupon validation:', {
-      code,
-      userId,
-      cartItemsCount: cartItems.length,
-      subtotal,
-      cartItems: cartItems.map(item => ({
-        id: item.id,
-        productId: item.productId,
-        category: item.category,
-        price: item.price,
-        quantity: item.quantity
-      }))
-    });
-
     // Find active coupon
     const coupon = await couponModel.findCouponByCode(code);
     if (!coupon) {
-      console.log('❌ [BACKEND] Coupon not found:', code);
       return {
         isValid: false,
         error: "Invalid coupon code"
       };
     }
 
-    console.log('✅ [BACKEND] Coupon found:', {
-      id: coupon.id,
-      code: coupon.code,
-      applicableTo: coupon.applicableTo,
-      categories: coupon.categories,
-      products: coupon.products,
-      isActive: coupon.isActive
-    });
 
     // Check if coupon is active
     if (!coupon.isActive) {
-      console.log('❌ [BACKEND] Coupon not active');
       return {
         isValid: false,
         error: "This coupon is no longer active"
@@ -48,7 +24,6 @@ async validateCoupon(code, userId, cartItems, subtotal) {
     // Check validity period
     const now = new Date();
     if (coupon.validFrom > now) {
-      console.log('❌ [BACKEND] Coupon not yet valid');
       return {
         isValid: false,
         error: "This coupon is not yet valid"
@@ -56,7 +31,6 @@ async validateCoupon(code, userId, cartItems, subtotal) {
     }
 
     if (coupon.validUntil && coupon.validUntil < now) {
-      console.log('❌ [BACKEND] Coupon expired');
       return {
         isValid: false,
         error: "This coupon has expired"
@@ -65,7 +39,6 @@ async validateCoupon(code, userId, cartItems, subtotal) {
 
     // Check usage limit
     if (coupon.usageLimit && coupon.usedCount >= coupon.usageLimit) {
-      console.log('❌ [BACKEND] Coupon usage limit reached');
       return {
         isValid: false,
         error: "This coupon has reached its usage limit"
@@ -74,10 +47,7 @@ async validateCoupon(code, userId, cartItems, subtotal) {
 
     // Check minimum order amount
     if (coupon.minOrderAmount && subtotal < coupon.minOrderAmount) {
-      console.log('❌ [BACKEND] Minimum order amount not met:', {
-        subtotal,
-        minOrderAmount: coupon.minOrderAmount
-      });
+
       return {
         isValid: false,
         error: `Minimum order amount of $${coupon.minOrderAmount} required`
@@ -88,7 +58,6 @@ async validateCoupon(code, userId, cartItems, subtotal) {
     if (coupon.isSingleUse && userId) {
       const hasUsed = await couponModel.hasUserUsedCoupon(coupon.id, userId);
       if (hasUsed) {
-        console.log('❌ [BACKEND] User already used this coupon');
         return {
           isValid: false,
           error: "You have already used this coupon"
@@ -97,20 +66,11 @@ async validateCoupon(code, userId, cartItems, subtotal) {
     }
 
     // Check coupon applicability to products
-    console.log('🔍 [BACKEND] Checking coupon applicability...');
     const applicableItems = this.getApplicableItems(coupon, cartItems);
     
-    console.log('📋 [BACKEND] Applicable items result:', {
-      applicableItemsCount: applicableItems.length,
-      applicableItems: applicableItems.map(item => ({
-        id: item.id,
-        productId: item.productId,
-        category: item.category
-      }))
-    });
+
 
     if (applicableItems.length === 0) {
-      console.log('❌ [BACKEND] No applicable items found');
       return {
         isValid: false,
         error: "This coupon doesn't apply to any items in your cart"
@@ -123,11 +83,7 @@ async validateCoupon(code, userId, cartItems, subtotal) {
       0
     );
 
-    console.log('💰 [BACKEND] Calculating discount...', {
-      applicableSubtotal,
-      discountType: coupon.discountType,
-      discountValue: coupon.discountValue
-    });
+
 
     // Calculate discount amount
     const discountAmount = this.calculateDiscount(
@@ -135,10 +91,7 @@ async validateCoupon(code, userId, cartItems, subtotal) {
       applicableSubtotal
     );
 
-    console.log('✅ [BACKEND] Coupon validation successful:', {
-      discountAmount,
-      finalAmount: subtotal - discountAmount
-    });
+
 
     return {
       isValid: true,
@@ -163,58 +116,34 @@ async validateCoupon(code, userId, cartItems, subtotal) {
 } 
 
 getApplicableItems(coupon, cartItems) {
-  console.log('🔍 [BACKEND] getApplicableItems called:', {
-    couponCode: coupon.code,
-    applicableTo: coupon.applicableTo,
-    categories: coupon.categories,
-    products: coupon.products,
-    cartItemsCount: cartItems.length,
-    cartItems: cartItems.map(item => ({
-      id: item.id,
-      productId: item.productId,
-      category: item.category,
-      price: item.price,
-      quantity: item.quantity
-    }))
-  });
 
   let result = [];
 
   switch (coupon.applicableTo) {
     case "ALL_PRODUCTS":
-      console.log('✅ [BACKEND] ALL_PRODUCTS - returning all items');
       result = cartItems;
       break;
     
     case "CATEGORY_SPECIFIC":
-      console.log('📂 [BACKEND] CATEGORY_SPECIFIC - filtering by categories:', coupon.categories);
       result = cartItems.filter(item => {
         const itemCategory = item.product?.category || item.category;
         const isInCategory = coupon.categories.includes(itemCategory);
-        console.log(`   - Item ${item.id} category "${itemCategory}" in categories: ${isInCategory}`);
         return isInCategory;
       });
       break;
     
     case "PRODUCT_SPECIFIC":
-      console.log('🎯 [BACKEND] PRODUCT_SPECIFIC - filtering by product IDs:', coupon.products);
       result = cartItems.filter(item => {
         const isInProducts = coupon.products.includes(item.productId);
-        console.log(`   - Item ${item.id} productId ${item.productId} in products: ${isInProducts}`);
         return isInProducts;
       });
       break;
     
     default:
-      console.log('❌ [BACKEND] Unknown applicableTo type:', coupon.applicableTo);
       result = [];
   }
 
-  console.log('📋 [BACKEND] getApplicableItems result:', {
-    inputCount: cartItems.length,
-    outputCount: result.length,
-    items: result.map(item => item.id)
-  });
+
 
   return result;
 }

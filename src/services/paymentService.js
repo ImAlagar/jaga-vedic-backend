@@ -173,18 +173,50 @@ export class PaymentService {
   }
 
   // 🔥 NEW: Async email sending (non-blocking)
-  async sendPaymentSuccessEmail(order) {
-    try {
-      const emailContent = await getPaymentSuccessEmail(order);
-      await sendMail(
-        order.user.email,
-        `Payment Successful - Order #${order.id}`,
-        emailContent
-      );
-    } catch (error) {
-      logger.error(`Email failed for order ${order.id}:`, error);
+async sendPaymentSuccessEmail(order) {
+  try {
+    // 🔥 FIX: Correct Prisma query - shippingAddress is a scalar field, not a relation
+    const completeOrder = await prisma.order.findUnique({
+      where: { id: order.id },
+      include: {
+        items: {
+          include: {
+            product: {
+              select: {
+                name: true,
+                images: true
+              }
+            }
+          }
+        },
+        user: {
+          select: {
+            email: true,
+            name: true
+          }
+        }
+        // shippingAddress is already included as scalar fields in Order model
+      }
+    });
+
+    if (!completeOrder) {
+      logger.error(`Order not found for email: ${order.id}`);
+      return;
     }
+
+    const emailContent = await getPaymentSuccessEmail(completeOrder);
+    await sendMail(
+      completeOrder.user.email,
+      `Payment Successful - Order #${completeOrder.id}`,
+      emailContent
+    );
+    
+    logger.info(`✅ Payment success email sent for order ${completeOrder.id}`);
+  } catch (error) {
+    logger.error(`Email failed for order ${order?.id}:`, error);
+    // Don't throw error to prevent breaking payment flow
   }
+}
 
   // 🔥 OPTIMIZED: Webhook handlers with faster operations
   async handlePaymentCaptured(payment) {

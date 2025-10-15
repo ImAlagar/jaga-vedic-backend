@@ -5,24 +5,15 @@ import jwt from "jsonwebtoken";
 import crypto from "crypto";
 import { sendMail } from "../utils/mailer.js";
 import { getWelcomeEmail, getPasswordResetEmail, getPasswordResetSuccessEmail } from "../utils/emailTemplates.js";
+import logger from "../utils/logger.js";
 
-// Debug function to check environment
-function debugEmailConfig() {
-  console.log('🔍 EMAIL CONFIGURATION DEBUG:');
-  console.log('NODE_ENV:', process.env.NODE_ENV);
-  console.log('SMTP_HOST:', process.env.SMTP_HOST ? '✅ Set' : '❌ Missing');
-  console.log('SMTP_PORT:', process.env.SMTP_PORT ? '✅ Set' : '❌ Missing');
-  console.log('SMTP_USER:', process.env.SMTP_USER ? '✅ Set' : '❌ Missing');
-  console.log('SMTP_PASS:', process.env.SMTP_PASS ? '✅ Set' : '❌ Missing');
-  console.log('CLIENT_URL:', process.env.CLIENT_URL ? '✅ Set' : '❌ Missing');
-  console.log('JWT_SECRET:', process.env.JWT_SECRET ? '✅ Set' : '❌ Missing');
-}
+
 
 
 export async function registerUser(name, email, password, phone) {
   try {
 
-    debugEmailConfig();
+   
 
     // Validate email format
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -148,12 +139,11 @@ export async function updateUserProfile(userId, updateData) {
     throw new Error(`Failed to update profile: ${error.message}`);
   }
 }
-
+  
 
 
 export async function forgotPassword(email) {
   try {
-    console.log(`🔍 Forgot password requested for: ${email}`);
     
     const user = await userModel.findUserByEmail(email.toLowerCase());
     
@@ -163,7 +153,6 @@ export async function forgotPassword(email) {
     };
 
     if (!user || !user.isActive) {
-      console.log(`ℹ️  User not found or inactive: ${email}`);
       return successResponse;
     }
 
@@ -180,10 +169,8 @@ export async function forgotPassword(email) {
       }
     );
 
-    console.log(`✅ Reset token saved for user: ${user.email}`);
 
     const resetUrl = `${process.env.CLIENT_URL}/reset-password?token=${token}`;
-    console.log(`🔗 Reset URL: ${resetUrl}`);
 
     // Send email with better error handling
     const emailResult = await sendMail(
@@ -192,11 +179,6 @@ export async function forgotPassword(email) {
       getPasswordResetEmail(resetUrl, user.name)
     );
 
-    if (emailResult) {
-      console.log(`✅ Password reset email sent to: ${user.email}`);
-    } else {
-      console.log(`⚠️  Email queued but delivery not confirmed for: ${user.email}`);
-    }
 
     return successResponse;
 
@@ -208,6 +190,7 @@ export async function forgotPassword(email) {
     };
   }
 }
+
 
 export async function resetPassword(token, newPassword) {
   try {
@@ -236,7 +219,6 @@ export async function resetPassword(token, newPassword) {
       }
     );
 
-    console.log(`✅ Password reset successful for user: ${user.email}`);
 
     // Send success email asynchronously
     sendMail(
@@ -245,7 +227,7 @@ export async function resetPassword(token, newPassword) {
       getPasswordResetSuccessEmail(user.name)
     )
     .then(() => {
-      console.log(`✅ Password reset success email sent to: ${user.email}`);
+      logger.log(`✅ Password reset success email sent to: ${user.email}`);
     })
     .catch(error => {
       console.error('❌ Success email failed:', error);

@@ -12,6 +12,9 @@ import contactRoutes from "./contactRoutes.js";
 import searchRoutes from "./searchRoutes.js";
 import couponRoutes from "./couponRoutes.js";
 import lookbookRoutes from "./lookbookRoutes.js";
+import shippingRoutes from './shippingRoutes.js';
+import reviewRoutes from './reviewRoutes.js'; // Add this line
+import taxRoutes from './taxRoutes.js'; // Add this line
 
 const router = express.Router();
 
@@ -21,13 +24,16 @@ router.use("/admin", adminUserRoutes);
 router.use("/users", userRoutes);
 router.use("/products", productRoutes);
 router.use("/orders", orderRoutes);
+router.use('/shipping', shippingRoutes);
 router.use("/payments", paymentRoutes);
-router.use("/webhooks", webhookRoutes); // Webhooks have separate path
+router.use("/webhooks", webhookRoutes);
 router.use("/debug", debugRoutes);
 router.use("/dashboard", dashboardRoutes);
 router.use("/contact", contactRoutes);
 router.use("/search", searchRoutes);
 router.use("/coupons", couponRoutes);
 router.use('/lookbook', lookbookRoutes);
+router.use('/reviews', reviewRoutes); // Add this line
+router.use('/tax', taxRoutes);
 
 export default router;

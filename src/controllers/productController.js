@@ -124,16 +124,6 @@ export async function filterProducts(req, res) {
       sortOrder = "desc"
     } = req.query;
 
-    console.log('🔍 Filter parameters received:', {
-      categories,
-      minPrice,
-      maxPrice,
-      inStock,
-      search,
-      page,
-      limit
-    });
-
     // Build filters object for service
     const filters = {
       ...(categories && { categories }), // Pass categories as is to service
@@ -150,7 +140,6 @@ export async function filterProducts(req, res) {
       sortOrder
     };
 
-    console.log('📋 Calling service with filters:', filters);
 
     const result = await productService.getFilteredProducts(filters, options);
 
@@ -272,7 +261,6 @@ export async function getProductsByCategory(req, res) {
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 12;
 
-    console.log(`🎯 Category filter request: ${category}, page: ${page}, limit: ${limit}`);
 
     if (!category) {
       return errorResponse(res, "Category parameter is required", HttpStatus.BAD_REQUEST);
@@ -352,6 +340,73 @@ export async function bulkDeleteProducts(req, res) {
 
     return successResponse(res, result, "Products deleted successfully", HttpStatus.OK);
   } catch (error) {
+    return errorResponse(res, error.message, HttpStatus.BAD_REQUEST);
+  }
+}
+
+
+// Add these functions to your productController.js
+export async function getProductReviews(req, res) {
+  try {
+    const { productId } = req.params;
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+    const sortBy = req.query.sortBy || 'createdAt';
+    const sortOrder = req.query.sortOrder || 'desc';
+
+    if (!productId || isNaN(productId)) {
+      return errorResponse(res, "Valid product ID is required", HttpStatus.BAD_REQUEST);
+    }
+
+    const result = await productService.getProductReviews(
+      parseInt(productId), 
+      page, 
+      limit, 
+      sortBy, 
+      sortOrder
+    );
+
+    return successResponse(res, result, "Product reviews fetched successfully", HttpStatus.OK);
+  } catch (error) {
+    console.error("Get product reviews error:", error);
+    return errorResponse(res, error.message, HttpStatus.BAD_REQUEST);
+  }
+}
+
+export async function getProductReviewStats(req, res) {
+  try {
+    const { productId } = req.params;
+
+    if (!productId || isNaN(productId)) {
+      return errorResponse(res, "Valid product ID is required", HttpStatus.BAD_REQUEST);
+    }
+
+    const stats = await productService.getProductReviewStats(parseInt(productId));
+
+    return successResponse(res, stats, "Product review stats fetched successfully", HttpStatus.OK);
+  } catch (error) {
+    console.error("Get product review stats error:", error);
+    return errorResponse(res, error.message, HttpStatus.BAD_REQUEST);
+  }
+}
+
+export async function getProductsWithReviewStats(req, res) {
+  try {
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 12;
+    const category = req.query.category || '';
+    const search = req.query.search || '';
+
+    const result = await productService.getProductsWithReviewStats(
+      page, 
+      limit, 
+      category, 
+      search
+    );
+
+    return successResponse(res, result, "Products with review stats fetched successfully", HttpStatus.OK);
+  } catch (error) {
+    console.error("Get products with review stats error:", error);
     return errorResponse(res, error.message, HttpStatus.BAD_REQUEST);
   }
 }

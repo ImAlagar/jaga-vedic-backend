@@ -10,7 +10,7 @@ export async function submitContactInquiry(inquiryData) {
     // Fire and forget - don't wait for emails
     sendMail(
       inquiry.email,
-      "We've Received Your Inquiry - Tech Buddyzz",
+      "We've Received Your Inquiry - Agumiya Collections",
       getContactConfirmationEmail(inquiry)
     ).catch(err => console.error('User email failed:', err));
     

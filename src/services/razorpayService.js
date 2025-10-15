@@ -76,12 +76,7 @@ class RazorpayService {
 
   async refundPayment(paymentId, amount) {
     try {
-      console.log('🔄 Attempting Razorpay refund:', { 
-        paymentId, 
-        amount,
-        environment: process.env.RAZORPAY_KEY_ID?.includes('test') ? 'TEST' : 'LIVE'
-      });
-      
+
       // Validate inputs
       if (!paymentId) {
         throw new Error('Payment ID is required for refund');
@@ -97,11 +92,9 @@ class RazorpayService {
         speed: 'normal'
       };
 
-      console.log('📦 Razorpay refund payload:', refundData);
 
       const refund = await this.instance.payments.refund(refundData);
       
-      console.log('✅ Razorpay refund response:', refund);
       
       logger.info('Payment refund processed', { 
         paymentId, 
