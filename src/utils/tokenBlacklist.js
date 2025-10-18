@@ -1,6 +1,7 @@
 import jwt from "jsonwebtoken";
 import { createHash } from "crypto";
 import prisma from "../config/prisma.js";
+import logger from "./logger.js";
 
 /**
  * Hash token for secure storage
@@ -32,7 +33,6 @@ export async function addToBlacklist(token) {
             }
         });
 
-        console.log('✅ Token blacklisted in database');
         return true;
     } catch (error) {
         console.error('❌ Error blacklisting token in database:', error);
@@ -110,7 +110,7 @@ export async function cleanupExpiredTokens() {
         });
         
         if (result.count > 0) {
-            console.log(`✅ Cleaned up ${result.count} expired tokens from database`);
+            logger(`✅ Cleaned up ${result.count} expired tokens from database`);
         }
         
         return result.count;

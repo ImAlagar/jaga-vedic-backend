@@ -78,7 +78,6 @@ class RazorpayService {
 // In src/services/razorpayService.js
 async refundPayment(paymentId, amount, retries = 3) {
   try {
-    console.log('🔍 Starting refund process for payment:', paymentId);
     
     // Validate inputs
     if (!paymentId) {
@@ -92,16 +91,8 @@ async refundPayment(paymentId, amount, retries = 3) {
     // Step 1: First verify the payment exists and is refundable
     let payment;
     try {
-      console.log('🔍 Checking if payment exists in Razorpay...');
       payment = await this.instance.payments.fetch(paymentId);
-      console.log('✅ Payment found:', {
-        paymentId: payment.id,
-        status: payment.status,
-        amount: payment.amount / 100,
-        currency: payment.currency,
-        order_id: payment.order_id,
-        created_at: payment.created_at
-      });
+
     } catch (fetchError) {
       console.error('❌ Payment fetch failed:', {
         paymentId,
@@ -123,7 +114,6 @@ async refundPayment(paymentId, amount, retries = 3) {
 
     // Step 3: Check if payment is already refunded
     if (payment.refund_status === 'full' || payment.refund_status === 'partial') {
-      console.log('ℹ️ Payment already has refunds:', payment.refund_status);
       // Check if we can process additional refund
       const alreadyRefunded = payment.amount_refunded || 0;
       const remainingAmount = payment.amount - alreadyRefunded;
@@ -144,22 +134,12 @@ async refundPayment(paymentId, amount, retries = 3) {
       }
     };
 
-    console.log('🔄 Processing refund with data:', refundData);
 
     // Step 5: Process refund with enhanced error handling
     for (let attempt = 1; attempt <= retries; attempt++) {
       try {
-        console.log(`🔄 Refund attempt ${attempt} of ${retries}`);
         
-        const refund = await this.instance.payments.refund(refundData);
-        
-        console.log('✅ Refund processed successfully:', {
-          paymentId,
-          refundId: refund.id,
-          amount: refund.amount / 100,
-          status: refund.status,
-          entity: refund.entity
-        });
+        const refund = this.instance.payments.refund(refundData);
         
         logger.info('Payment refund processed', { 
           paymentId, 
@@ -171,28 +151,15 @@ async refundPayment(paymentId, amount, retries = 3) {
         return refund;
         
       } catch (retryError) {
-        console.log(`❌ Refund attempt ${attempt} failed:`, {
-          message: retryError.message,
-          statusCode: retryError.statusCode,
-          errorCode: retryError.code,
-          errorDescription: retryError.description,
-          razorpayError: retryError.error,
-          fullError: retryError
-        });
+
         
         // Enhanced error analysis
         if (retryError.statusCode === 404) {
           // This is the core issue - payment exists but refund returns 404
-          console.log('🔍 Analyzing 404 refund error...');
           
           // Check if this is a test payment in live mode or vice versa
           const isTestPayment = paymentId.startsWith('pay_') && !paymentId.includes('live');
-          console.log('🔍 Payment analysis:', {
-            isTestPayment,
-            paymentId,
-            environment: process.env.NODE_ENV,
-            keyId: process.env.RAZORPAY_KEY_ID?.substring(0, 10) + '...'
-          });
+
           
           throw new Error(`Payment ID '${paymentId}' cannot be refunded. This may be due to environment mismatch (test payment in live mode) or payment not being fully processed.`);
         }
@@ -204,7 +171,6 @@ async refundPayment(paymentId, amount, retries = 3) {
         
         // Wait before retrying (exponential backoff)
         const delay = Math.pow(2, attempt) * 1000;
-        console.log(`⏳ Waiting ${delay}ms before retry...`);
         await new Promise(resolve => setTimeout(resolve, delay));
       }
     }

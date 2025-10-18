@@ -104,12 +104,6 @@ export const taxModel = {
   // Calculate tax for order
 async calculateOrderTax(data) {
   try {
-    console.log('🔍 TAX MODEL - Calculating tax for:', {
-      country: data.shippingAddress.country,
-      subtotal: data.subtotal,
-      shippingCost: data.shippingCost
-    });
-
     // Country tax rate get pannu
     const countryTax = await prisma.countryTaxRate.findFirst({
       where: { 
@@ -118,10 +112,8 @@ async calculateOrderTax(data) {
       }
     });
 
-    console.log('🔍 TAX MODEL - Found tax rate:', countryTax);
 
     if (!countryTax) {
-      console.log('❌ TAX MODEL - No tax rate found for country:', data.shippingAddress.country);
       return {
         taxAmount: 0,
         taxRate: 0,
@@ -133,15 +125,6 @@ async calculateOrderTax(data) {
     const taxRate = countryTax.taxRate / 100; // 20 / 100 = 0.20 ✅
     const taxableAmount = data.subtotal + (countryTax.appliesToShipping ? data.shippingCost : 0);
     const taxAmount = taxableAmount * taxRate;
-
-    console.log('💰 TAX MODEL - CORRECTED CALCULATION:', {
-      databaseTaxRate: countryTax.taxRate,
-      decimalTaxRate: taxRate,
-      taxableAmount: taxableAmount,
-      calculatedTax: taxAmount,
-      expectedTax: `$${taxAmount} at ${countryTax.taxRate}%`
-    });
-
     return {
       taxAmount: taxAmount,
       taxRate: taxRate, // Return as decimal (0.2 for 20%)

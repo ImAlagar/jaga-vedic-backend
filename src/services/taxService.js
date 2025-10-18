@@ -35,18 +35,6 @@ async calculateTax(calculationData) {
   try {
     const { items, shippingAddress, subtotal, shippingCost } = calculationData;
 
-    console.log('🔍 TAX SERVICE - Input data:', {
-      country: shippingAddress?.country,
-      region: shippingAddress?.region,
-      subtotal: subtotal,
-      shippingCost: shippingCost,
-      itemsCount: items.length,
-      items: items.map(item => ({
-        productId: item.productId,
-        price: item.price,
-        quantity: item.quantity
-      }))
-    });
 
     // Validate required fields
     if (!items || !Array.isArray(items) || items.length === 0) {
@@ -72,11 +60,6 @@ async calculateTax(calculationData) {
       shippingCost: parseFloat(shippingCost) || 0
     });
 
-    console.log('💰 TAX SERVICE - Calculation result:', {
-      taxAmount: taxCalculation.taxAmount,
-      taxRate: taxCalculation.taxRate,
-      breakdown: taxCalculation.breakdown
-    });
 
     return {
       success: true,

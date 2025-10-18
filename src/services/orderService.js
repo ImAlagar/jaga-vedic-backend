@@ -31,7 +31,6 @@ export class OrderService {
 
   async createOrder(userId, orderData) {
     try {
-      console.log('🔍 SERVICE - Creating order for user:', userId);
 
       const { items, shippingAddress, orderImage, orderNotes, couponCode } = orderData;
 
@@ -117,7 +116,6 @@ export class OrderService {
       let shippingCost = 0;
       let shippingDetails = null;
       try {
-        console.log('🚚 ORDER SERVICE - Calculating shipping...');
 
         const shippingData = await printifyShippingService.calculateCartShipping(
           items.map(item => ({
@@ -133,7 +131,6 @@ export class OrderService {
         shippingCost = roundUSDToWhole(shippingData.totalShipping); // ✅ ROUNDED
         shippingDetails = shippingData;
         
-        console.log(`🚚 ORDER SERVICE - Shipping cost calculated: $${shippingCost}`);
 
         // 🔥 CRITICAL FIX: If shipping is too high, force fallback
         if (shippingCost > 15 && shippingAddress.country === 'IN') {
@@ -163,7 +160,6 @@ export class OrderService {
       let taxRate = 0;
       let taxBreakdown = null;
       try {
-        console.log('🧾 Manual tax calculation for India');
 
         const taxData = await taxService.calculateTax({
           items: items.map((item, index) => {
@@ -185,7 +181,6 @@ export class OrderService {
           taxRate = taxData.data.taxRate || 0;
           taxBreakdown = taxData.data.breakdown || null;
           
-          console.log(`🧾 DYNAMIC TAX: $${taxAmount} at rate ${(taxRate * 100)}%`);
         } else {
           throw new Error('Tax service returned unsuccessful');
         }
@@ -198,12 +193,10 @@ export class OrderService {
           const taxableAmount = subtotalAmount + (countryTax.appliesToShipping ? shippingCost : 0);
           taxAmount = roundUSDToWhole(taxableAmount * taxRate); // ✅ ROUNDED
           
-          console.log(`🧾 DATABASE TAX: $${taxAmount} at rate ${(taxRate * 100)}%`);
         } catch (dbError) {
           console.error('Database tax fallback failed:', dbError);
           taxRate = await this.getStaticTaxRate(shippingAddress.country);
           taxAmount = roundUSDToWhole((subtotalAmount + shippingCost) * taxRate); // ✅ ROUNDED
-          console.log(`🔄 STATIC FALLBACK: $${taxAmount} at rate ${(taxRate * 100)}%`);
         }
       }
 
@@ -251,15 +244,6 @@ export class OrderService {
       const finalAmountINR = roundToWholeNumber(finalAmountUSD * exchangeRate);
       finalAmountUSD = roundUSDToWhole(finalAmountUSD);
 
-      console.log('💰 FINAL CALCULATIONS (ROUNDED):', {
-        subtotal: subtotalAmount,
-        shipping: shippingCost,
-        tax: taxAmount,
-        discount: discountAmount,
-        finalUSD: finalAmountUSD,
-        finalINR: finalAmountINR,
-        currency: displayCurrency
-      });
 
       // Create order with transaction
       let order;
@@ -354,20 +338,6 @@ export class OrderService {
         }
       }
 
-      console.log('✅ SERVICE - Order created successfully:', {
-        orderId: completeOrder.id,
-        totalAmount: completeOrder.totalAmount,
-        currency: completeOrder.currency,
-        roundedAmounts: {
-          subtotal: subtotalAmount,
-          shipping: shippingCost,
-          tax: taxAmount,
-          discount: discountAmount,
-          finalUSD: finalAmountUSD,
-          finalINR: finalAmountINR
-        }
-      });
-
       // Handle async operations
       this.handleAsyncOperations(completeOrder).catch(err => {
         console.error('Async operations failed:', err);
@@ -417,11 +387,7 @@ async getTaxRateFromDatabase(countryCode) {
       throw new Error(`No tax rate found for ${correctedCountry}`);
     }
 
-    console.log('💰 DATABASE TAX RATE:', {
-      country: correctedCountry,
-      taxRate: countryTax.taxRate,
-      appliesToShipping: countryTax.appliesToShipping
-    });
+
 
     return countryTax;
   } catch (error) {
@@ -446,16 +412,11 @@ async getStaticTaxRate(countryCode) {
   const correctedCountry = countryCode === 'TN' ? 'IN' : countryCode;
   const rate = staticRates[correctedCountry] || staticRates.default;
   
-  console.log('💰 STATIC TAX RATE:', {
-    country: correctedCountry,
-    rate: rate * 100 + '%'
-  });
-  
+
   return rate;
 }
 
 async handleAsyncOperations(order) {
-  console.log(`🔄 Starting async operations for order ${order.id}`);
   
   try {
     const results = await Promise.allSettled([
@@ -469,13 +430,11 @@ async handleAsyncOperations(order) {
       })
     ]);
 
-    console.log(`✅ Async operations completed for order ${order.id}:`, results);
     
     // Log detailed results
     results.forEach((result, index) => {
       const operation = index === 0 ? 'Printify' : 'Email';
       if (result.status === 'fulfilled') {
-        console.log(`✅ ${operation} operation successful for order ${order.id}`);
       } else {
         console.error(`❌ ${operation} operation failed for order ${order.id}:`, result.reason);
       }
@@ -487,7 +446,6 @@ async handleAsyncOperations(order) {
 }
 
 async forwardToPrintify(order) {
-  console.log(`🔄 Starting Printify forwarding for order ${order.id}`);
   
   try {
     // Validate order data
@@ -501,7 +459,6 @@ async forwardToPrintify(order) {
       sku: item.product.sku,
     }));
 
-    console.log(`📦 Sending ${printifyItems.length} items to Printify for order ${order.id}`);
 
     const printifyOrder = await this.printifyService.createOrder({
       orderId: order.id,
@@ -510,7 +467,6 @@ async forwardToPrintify(order) {
       orderImage: order.orderImage,
     });
 
-    console.log(`✅ Printify order created: ${printifyOrder.id}`);
 
     // Update order with Printify ID
     await prisma.order.update({
@@ -521,7 +477,6 @@ async forwardToPrintify(order) {
       },
     });
 
-    console.log(`✅ Order ${order.id} updated with Printify ID: ${printifyOrder.id}`);
     logger.info(`✅ Order ${order.id} forwarded to Printify: ${printifyOrder.id}`);
     
     return printifyOrder;
@@ -543,7 +498,6 @@ async forwardToPrintify(order) {
 }
 
 async sendOrderNotifications(order) {
-  console.log(`📧 Starting email notifications for order ${order.id}`);
   
   try {
     if (!order.user?.email) {
@@ -552,7 +506,6 @@ async sendOrderNotifications(order) {
       throw new Error(errorMsg);
     }
 
-    console.log(`✅ Customer email: ${order.user.email}`);
 
     // Generate email content with timeout
     let customerEmailHtml, adminEmailHtml;
@@ -565,7 +518,6 @@ async sendOrderNotifications(order) {
           setTimeout(() => reject(new Error('Email template timeout')), 10000)
         )
       ]);
-      console.log('✅ Customer email template generated');
     } catch (templateError) {
       console.error('❌ Customer email template error:', templateError);
       customerEmailHtml = this.getFallbackOrderEmail(order);
@@ -579,7 +531,6 @@ async sendOrderNotifications(order) {
           setTimeout(() => reject(new Error('Admin email template timeout')), 10000)
         )
       ]);
-      console.log('✅ Admin email template generated');
     } catch (templateError) {
       console.error('❌ Admin email template error:', templateError);
       adminEmailHtml = this.getFallbackAdminEmail(order);
@@ -595,9 +546,8 @@ async sendOrderNotifications(order) {
         `Order Confirmation - #${order.id}`,
         customerEmailHtml
       ).then(() => {
-        console.log(`✅ Customer email sent to: ${order.user.email}`);
+        logger(`✅ Customer email sent to: ${order.user.email}`);
       }).catch(error => {
-        console.error(`❌ Customer email failed:`, error);
         throw new Error(`Customer email failed: ${error.message}`);
       })
     );
@@ -610,7 +560,6 @@ async sendOrderNotifications(order) {
           `New Order - #${order.id}`,
           adminEmailHtml
         ).then(() => {
-          console.log('✅ Admin email sent successfully');
         }).catch(error => {
           console.error('❌ Admin email failed:', error);
           // Don't throw for admin email failures
@@ -619,7 +568,6 @@ async sendOrderNotifications(order) {
     }
 
     const results = await Promise.allSettled(emailPromises);
-    console.log(`📧 Email results for order ${order.id}:`, results);
     
     return results;
     
@@ -884,7 +832,6 @@ getFallbackAdminEmail(order) {
 
 
 async cancelOrder(orderId, reason, cancelledBy) {
-  console.log('🔄 OrderService: Starting quick cancellation...', { orderId });
   
   try {
     // Step 1: Quick database fetch with correct field names
@@ -904,13 +851,6 @@ async cancelOrder(orderId, reason, cancelledBy) {
 
     if (!order) throw new Error("Order not found");
 
-    console.log('📦 OrderService: Found order', {
-      orderId: order.id,
-      status: order.fulfillmentStatus,
-      paymentStatus: order.paymentStatus,
-      razorpayPaymentId: order.razorpayPaymentId
-    });
-
     // Step 2: Quick validation
     const cancellableStatuses = ['PLACED', 'PENDING', 'PROCESSING'];
     if (!cancellableStatuses.includes(order.fulfillmentStatus)) {
@@ -925,12 +865,9 @@ async cancelOrder(orderId, reason, cancelledBy) {
     if (order.paymentStatus === 'SUCCEEDED' && order.razorpayPaymentId) {
       refundStatus = 'PENDING';
       refundAmount = order.totalAmount;
-      console.log('💰 OrderService: Refund required', {
-        paymentId: order.razorpayPaymentId,
-        amount: refundAmount
-      });
+
     } else {
-      console.log('ℹ️ OrderService: No refund required', {
+      logger('ℹ️ OrderService: No refund required', {
         paymentStatus: order.paymentStatus,
         hasPaymentId: !!order.razorpayPaymentId
       });
@@ -949,7 +886,6 @@ async cancelOrder(orderId, reason, cancelledBy) {
       refundRequestedAt: refundStatus === 'PENDING' ? new Date() : null
     };
 
-    console.log('📝 OrderService: Quick database update...', { orderId, updateData });
     
     const cancelledOrder = await prisma.order.update({
       where: { id: orderId },
@@ -964,11 +900,6 @@ async cancelOrder(orderId, reason, cancelledBy) {
       }
     });
 
-    console.log('✅ OrderService: Quick cancellation completed', { 
-      orderId,
-      newStatus: cancelledOrder.fulfillmentStatus,
-      refundStatus: cancelledOrder.refundStatus
-    });
 
     // Step 5: Start background processing (non-blocking)
     this.processBackgroundTasks(cancelledOrder, reason).catch(error => {
@@ -985,15 +916,12 @@ async cancelOrder(orderId, reason, cancelledBy) {
 
 // Separate method for background tasks
 async processBackgroundTasks(cancelledOrder, reason) {
-  console.log('🔄 Starting background tasks for order:', cancelledOrder.id);
   
   try {
     // 1. Printify cancellation (if needed)
     if (cancelledOrder.printifyOrderId) {
       try {
-        console.log('🖨️ Processing Printify cancellation...');
         await this.printifyService.cancelOrder(cancelledOrder.printifyOrderId);
-        console.log('✅ Printify cancellation completed');
       } catch (printifyError) {
         console.warn('⚠️ Printify cancellation failed (non-critical):', printifyError.message);
       }
@@ -1001,23 +929,17 @@ async processBackgroundTasks(cancelledOrder, reason) {
 
     // 2. Refund processing (if needed) - use razorpayPaymentId
     if (cancelledOrder.refundStatus === 'PENDING' && cancelledOrder.razorpayPaymentId) {
-      console.log('💰 Processing refund...', {
-        paymentId: cancelledOrder.razorpayPaymentId,
-        amount: cancelledOrder.refundAmount
-      });
       await this.processRefund(cancelledOrder, reason);
     } else {
-      console.log('ℹ️ No refund processing needed', {
+      logger('ℹ️ No refund processing needed', {
         refundStatus: cancelledOrder.refundStatus,
         hasPaymentId: !!cancelledOrder.razorpayPaymentId
       });
     }
 
     // 3. Send notifications
-    console.log('📧 Sending cancellation notifications...');
     await this.sendCancellationNotifications(cancelledOrder, reason, cancelledOrder.cancelledBy);
 
-    console.log('✅ All background tasks completed for order:', cancelledOrder.id);
     
   } catch (error) {
     console.error('❌ Background tasks failed:', error.message);
@@ -1057,7 +979,6 @@ async processRefund(order, reason = "Order cancellation") {
   
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
     try {
-      console.log(`🔄 Refund attempt ${attempt}/${MAX_RETRIES} for order ${order.id}`);
       
       // Enhanced validation
       if (!order.razorpayPaymentId) {
@@ -1158,7 +1079,6 @@ async processRefund(order, reason = "Order cancellation") {
       }
 
       // Wait before retry
-      console.log(`⏳ Waiting ${RETRY_DELAY}ms before retry...`);
       await new Promise(resolve => setTimeout(resolve, RETRY_DELAY));
     }
   }

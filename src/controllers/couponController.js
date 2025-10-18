@@ -163,9 +163,6 @@ export async function updateCoupon(req, res) {
   try {
     const { id } = req.params;
     const updateData = req.body;
-
-    console.log('🔄 Updating coupon:', { id, updateData });
-
     // Validate required fields for update
     if (!id) {
       return errorResponse(res, "Coupon ID is required", HttpStatus.BAD_REQUEST);

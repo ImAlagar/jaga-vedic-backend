@@ -13,9 +13,6 @@ const orderService = new OrderService();
 
 export async function createOrder(req, res) {
   try {
-    console.log('🔍 CONTROLLER - Request user:', req.user);
-    console.log('🔍 CONTROLLER - Request body:', req.body);
-    
     // Check authentication
     if (!req.user || !req.user.id) {
       return errorResponse(res, 'Authentication required', HttpStatus.UNAUTHORIZED);
@@ -30,12 +27,10 @@ export async function createOrder(req, res) {
       return errorResponse(res, validationErrors.join(", "), HttpStatus.BAD_REQUEST);
     }
 
-    console.log('📦 CONTROLLER - Calling order service...');
     
     // ✅ FIXED: Call the service method with proper parameters
     const order = await orderService.createOrder(userId, orderData);
     
-    console.log('✅ CONTROLLER - Order created successfully:', order.id);
 
     // Emit socket event
     socketEvents.emitNewOrder(OrderResponseDto.fromOrder(order));
@@ -367,15 +362,6 @@ export async function cancelOrder(req, res) {
     const { reason } = req.body;
     const userId = req.user.id;
     const userRole = req.user.role;
-
-    console.log('🔄 Backend: Cancel order request received', {
-      orderId,
-      userId,
-      userRole,
-      reason,
-      timestamp: new Date().toISOString()
-    });
-
     if (!orderId || isNaN(orderId)) {
       return errorResponse(res, "Valid order ID is required", HttpStatus.BAD_REQUEST);
     }
@@ -394,12 +380,6 @@ export async function cancelOrder(req, res) {
       return errorResponse(res, "Access denied", HttpStatus.FORBIDDEN);
     }
 
-    console.log('🔄 Backend: Processing order cancellation...', {
-      orderId,
-      currentStatus: order.fulfillmentStatus,
-      paymentStatus: order.paymentStatus
-    });
-
     // Process cancellation (this should be optimized to be fast)
     const cancelledOrder = await orderService.cancelOrder(
       parseInt(orderId), 
@@ -408,12 +388,6 @@ export async function cancelOrder(req, res) {
     );
 
     const processingTime = Date.now() - startTime;
-    console.log('✅ Backend: Order cancellation completed', {
-      orderId,
-      newStatus: cancelledOrder.fulfillmentStatus,
-      refundStatus: cancelledOrder.refundStatus,
-      processingTime: `${processingTime}ms`
-    });
 
     // Send immediate response - don't wait for async operations
     const responseData = {
@@ -425,11 +399,6 @@ export async function cancelOrder(req, res) {
         ? 'Refund will be processed in the background'
         : 'No refund required'
     };
-
-    console.log('📤 Backend: Sending response to frontend', {
-      orderId,
-      responseTime: `${processingTime}ms`
-    });
 
     // Send response immediately
     return successResponse(

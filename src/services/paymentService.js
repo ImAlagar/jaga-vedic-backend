@@ -36,14 +36,7 @@ async createRazorpayOrder(orderId, userId) {
 
     // Get user's country from shipping address
     const userCountry = order.shippingAddress?.country || 'US';
-    console.log('💰 PAYMENT DEBUG:', {
-      orderId: order.id,
-      storedAmount: order.totalAmount,
-      storedCurrency: order.currency,
-      originalAmount: order.originalAmount,
-      userCountry: userCountry,
-      shippingCost: order.shipping?.[0]?.shippingCost || 0
-    });
+
 
     // 🔥 FIX: DETERMINE CURRENCY BASED ON USER LOCATION
     let razorpayAmount, razorpayCurrency, displayAmount, displayCurrency;
@@ -55,7 +48,6 @@ async createRazorpayOrder(orderId, userId) {
       displayAmount = order.totalAmount;
       displayCurrency = "INR";
       
-      console.log(`🇮🇳 INDIAN CUSTOMER: Paying ${razorpayAmount} ${razorpayCurrency}`);
     } 
     // International customers pay in USD (if Razorpay supports) or converted currency
     else {
@@ -70,7 +62,6 @@ async createRazorpayOrder(orderId, userId) {
       displayAmount = order.originalAmount || (order.totalAmount / order.exchangeRate); // Show USD equivalent
       displayCurrency = "USD";
       
-      console.log(`🌍 INTERNATIONAL CUSTOMER: User sees ${displayAmount.toFixed(2)} ${displayCurrency}, pays ${razorpayAmount} ${razorpayCurrency}`);
     }
 
     const options = {
@@ -89,12 +80,6 @@ async createRazorpayOrder(orderId, userId) {
       }
     };
 
-    console.log('💰 FINAL PAYMENT SETUP:', {
-      userLocation: userCountry,
-      userSees: `${displayAmount.toFixed(2)} ${displayCurrency}`,
-      razorpayCharges: `${razorpayAmount} ${razorpayCurrency}`,
-      amountInSmallestUnit: options.amount
-    });
 
     const razorpayOrder = await this.razorpay.orders.create(options);
 

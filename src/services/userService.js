@@ -146,33 +146,21 @@ export async function updateUserProfile(userId, updateData) {
 // Add detailed logging in your forgotPassword function
 export async function forgotPassword(email) {
   try {
-    console.log('🔍 Forgot password request for:', email);
     
     const user = await userModel.findUserByEmail(email.toLowerCase());
-    console.log('👤 User found:', user ? 'Yes' : 'No');
     
-    if (user) {
-      console.log('📝 User details:', {
-        id: user.id,
-        email: user.email,
-        isActive: user.isActive
-      });
-    }
-
     // Security: Always return same message
     const successResponse = { 
       message: "If the email exists, a password reset link has been sent" 
     };
 
     if (!user || !user.isActive) {
-      console.log('❌ User not found or inactive');
       return successResponse;
     }
 
     const token = crypto.randomBytes(32).toString('hex');
     const expiry = new Date(Date.now() + 15 * 60 * 1000);
 
-    console.log('🔐 Generated token and updating user...');
     
     // Update user with reset token
     const updateResult = await userModel.updateUser(
@@ -184,12 +172,9 @@ export async function forgotPassword(email) {
       }
     );
     
-    console.log('✅ User updated successfully:', updateResult);
 
     const resetUrl = `${process.env.CLIENT_URL}/reset-password?token=${token}`;
-    console.log('🔗 Reset URL:', resetUrl);
 
-    console.log('📧 Attempting to send email...');
     
     const emailResult = await sendMail(
       user.email,
@@ -197,7 +182,6 @@ export async function forgotPassword(email) {
       getPasswordResetEmail(resetUrl, user.name)
     );
 
-    console.log('✅ Email sent successfully:', emailResult);
 
     return successResponse;
 

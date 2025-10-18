@@ -28,12 +28,6 @@ router.post('/calculate-totals', async (req, res) => {
       });
     }
 
-    console.log('🧮 UNIFIED CALCULATION START:', {
-      itemsCount: items.length,
-      country: shippingAddress.country,
-      couponCode: couponCode || 'none'
-    });
-
     // Always use USD for calculations
     const userCurrency = 'USD';
     const exchangeRate = 88; // USD to INR
@@ -45,7 +39,6 @@ router.post('/calculate-totals', async (req, res) => {
       return sum + (price * qty);
     }, 0);
 
-    console.log('💰 Subtotal (USD):', subtotalUSD);
 
     // 2. Calculate Shipping (EXACTLY like order service)
     let shippingUSD = 0;
@@ -86,7 +79,6 @@ router.post('/calculate-totals', async (req, res) => {
       shippingUSD = shippingAddress.country === 'IN' ? 5.99 : 9.99;
     }
 
-    console.log('🚚 Final Shipping (USD):', shippingUSD);
 
     // 3. Calculate Tax (EXACTLY like order service)
     let taxUSD = 0;
@@ -111,12 +103,10 @@ router.post('/calculate-totals', async (req, res) => {
         taxRate = taxData.data.taxRate || 0;
         taxBreakdown = taxData.data.breakdown || null;
         
-        console.log(`🧾 TAX CALCULATION: $${taxUSD} at rate ${(taxRate * 100)}%`);
       } else {
         throw new Error('Tax service returned unsuccessful');
       }
     } catch (error) {
-      console.error('❌ Tax calculation failed, using fallback:', error.message);
       
       // Use same fallback logic as order service
       try {
@@ -131,11 +121,9 @@ router.post('/calculate-totals', async (req, res) => {
           taxRate = countryTax.taxRate / 100;
           const taxableAmount = subtotalUSD + (countryTax.appliesToShipping ? shippingUSD : 0);
           taxUSD = taxableAmount * taxRate;
-          console.log(`🧾 DATABASE TAX FALLBACK: $${taxUSD} at rate ${(taxRate * 100)}%`);
         } else {
           taxRate = 0.18; // 18% fallback
           taxUSD = (subtotalUSD + shippingUSD) * taxRate;
-          console.log(`🔄 STATIC TAX FALLBACK: $${taxUSD} at rate ${(taxRate * 100)}%`);
         }
       } catch (dbError) {
         console.error('Database tax fallback failed:', dbError);
@@ -168,7 +156,6 @@ router.post('/calculate-totals', async (req, res) => {
           discountAmount = couponValidation.coupon.discountAmount;
           finalCouponCode = couponValidation.coupon.code;
           couponDetails = couponValidation.coupon;
-          console.log(`🎫 COUPON APPLIED: -$${discountAmount} (${finalCouponCode})`);
         } else {
           console.warn('❌ Coupon validation failed:', couponValidation.error);
         }
@@ -189,16 +176,7 @@ router.post('/calculate-totals', async (req, res) => {
       ? finalAmountUSD * exchangeRate 
       : finalAmountUSD;
 
-    console.log('💰 FINAL CALCULATIONS:', {
-      subtotal: subtotalUSD,
-      shipping: shippingUSD,
-      tax: taxUSD,
-      discount: discountAmount,
-      finalUSD: finalAmountUSD,
-      finalDisplay: finalAmountDisplay,
-      currency: displayCurrency,
-      exchangeRate: userCountry === 'IN' ? exchangeRate : 1
-    });
+
 
     // ✅ ADD ROUNDING FUNCTIONS
     const roundToWholeNumber = (amount) => Math.round(amount);
@@ -250,16 +228,6 @@ router.post('/calculate-totals', async (req, res) => {
       }
     };
 
-    console.log('✅ UNIFIED CALCULATION COMPLETE:', {
-      totalDisplay: response.amounts.totalUser,
-      currency: response.currency,
-      roundedAmounts: {
-        subtotalUser: response.amounts.subtotalUser,
-        shippingUser: response.amounts.shippingUser,
-        taxUser: response.amounts.taxUser,
-        totalUser: response.amounts.totalUser
-      }
-    });
 
     res.json(response);
 

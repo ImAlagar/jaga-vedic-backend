@@ -54,7 +54,6 @@ export class CurrencyService {
         timestamp: Date.now()
       });
       
-      console.log(`✅ Exchange rates updated for ${baseCurrency}`);
       return rates;
       
     } catch (error) {

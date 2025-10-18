@@ -495,7 +495,6 @@ getFallbackShipping(country) {
 
   const shippingCost = fallbackRates[country] || fallbackRates.default;
 
-  console.log('🔄 FALLBACK SHIPPING - Country:', country, 'Cost:', shippingCost);
 
   return {
     shippingCost: shippingCost,

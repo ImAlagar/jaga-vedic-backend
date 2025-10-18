@@ -1074,16 +1074,7 @@ export async function getAdminNewOrderEmail(order, userCurrency = 'USD') {
   const localTax = formatPrice(convertToLocal(order.taxAmount || 0));
   const localDiscount = formatPrice(convertToLocal(order.discountAmount || 0));
 
-  // Debug pannu
-  console.log('🔍 ADMIN EMAIL DEBUG:', {
-    subtotalUSD: order.subtotalAmount,
-    subtotalINR: convertToLocal(order.subtotalAmount),
-    shippingUSD: shippingCost,
-    shippingINR: convertToLocal(shippingCost),
-    taxUSD: order.taxAmount,
-    taxINR: convertToLocal(order.taxAmount),
-    total: order.totalAmount
-  });
+
  
   const amountBreakdown = `
     <div style="margin-top: 15px; padding: 15px; background: #f8f9fa; border-radius: 6px; border: 1px solid #ddd;">

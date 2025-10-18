@@ -47,15 +47,6 @@ export const verifyPayment = withTimeout(async (req, res) => {
   const { razorpay_payment_id, razorpay_order_id, razorpay_signature, orderId } = req.body;
   const userId = req.user.id;
 
-  console.log('🔍 BACKEND - Verification request received:', {
-    razorpay_payment_id: razorpay_payment_id ? 'present' : 'missing',
-    razorpay_order_id: razorpay_order_id ? 'present' : 'missing',
-    razorpay_signature: razorpay_signature ? 'present' : 'missing',
-    orderId: orderId ? 'present' : 'missing',
-    userId: userId,
-    body: req.body
-  });
-
   // Quick validation
   if (!razorpay_payment_id || !razorpay_order_id || !razorpay_signature || !orderId) {
     console.error('❌ BACKEND - Missing verification data:', {
@@ -77,7 +68,6 @@ export const verifyPayment = withTimeout(async (req, res) => {
       orderId
     }, userId);
 
-    console.log('✅ BACKEND - Verification successful for order:', orderId);
     return successResponse(res, verification, "Payment verified successfully");
   } catch (error) {
     console.error('❌ BACKEND - Verification service error:', error);

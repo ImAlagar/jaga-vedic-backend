@@ -351,7 +351,6 @@ export class CouponService {
    */
 async getAvailableCoupons(userId, cartItems, subtotal) {
   try {
-    console.log('🔍 getAvailableCoupons called:', { userId, cartItemsCount: cartItems?.length, subtotal });
 
     if (!Array.isArray(cartItems) || cartItems.length === 0) {
       throw new AppError('VALIDATION_ERROR', 'Cart items are required');
@@ -365,7 +364,6 @@ async getAvailableCoupons(userId, cartItems, subtotal) {
     const availableCoupons = [];
     const suggestedCoupons = [];
 
-    console.log(`📋 Found ${allCoupons.length} active coupons to check`);
 
     for (const coupon of allCoupons) {
       try {
@@ -398,7 +396,6 @@ async getAvailableCoupons(userId, cartItems, subtotal) {
           }
         }
       } catch (error) {
-        console.log(`⚠️ Skipping coupon ${coupon.code}:`, error.message);
         continue;
       }
     }
@@ -406,7 +403,6 @@ async getAvailableCoupons(userId, cartItems, subtotal) {
     // Sort suggestions by potential savings
     suggestedCoupons.sort((a, b) => b.potentialDiscount - a.potentialDiscount);
 
-    console.log(`✅ Found ${availableCoupons.length} available coupons, ${suggestedCoupons.length} suggestions`);
 
     return {
       available: availableCoupons,
