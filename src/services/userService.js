@@ -143,25 +143,39 @@ export async function updateUserProfile(userId, updateData) {
   
 
 
+// Add detailed logging in your forgotPassword function
 export async function forgotPassword(email) {
   try {
+    console.log('🔍 Forgot password request for:', email);
     
     const user = await userModel.findUserByEmail(email.toLowerCase());
+    console.log('👤 User found:', user ? 'Yes' : 'No');
     
+    if (user) {
+      console.log('📝 User details:', {
+        id: user.id,
+        email: user.email,
+        isActive: user.isActive
+      });
+    }
+
     // Security: Always return same message
     const successResponse = { 
       message: "If the email exists, a password reset link has been sent" 
     };
 
     if (!user || !user.isActive) {
+      console.log('❌ User not found or inactive');
       return successResponse;
     }
 
     const token = crypto.randomBytes(32).toString('hex');
     const expiry = new Date(Date.now() + 15 * 60 * 1000);
 
+    console.log('🔐 Generated token and updating user...');
+    
     // Update user with reset token
-    await userModel.updateUser(
+    const updateResult = await userModel.updateUser(
       { id: user.id },
       { 
         resetToken: token, 
@@ -169,30 +183,36 @@ export async function forgotPassword(email) {
         updatedAt: new Date()
       }
     );
-
+    
+    console.log('✅ User updated successfully:', updateResult);
 
     const resetUrl = `${process.env.CLIENT_URL}/reset-password?token=${token}`;
+    console.log('🔗 Reset URL:', resetUrl);
 
-    // Send email with better error handling
+    console.log('📧 Attempting to send email...');
+    
     const emailResult = await sendMail(
       user.email,
-      "Password Reset Request",
+      "Password Reset Request - Agumiya Collections",
       getPasswordResetEmail(resetUrl, user.name)
     );
 
+    console.log('✅ Email sent successfully:', emailResult);
 
     return successResponse;
 
   } catch (error) {
     console.error('❌ Forgot password error:', error);
-    // Still return success for security
+    console.error('🔍 Error details:', {
+      message: error.message,
+      stack: error.stack
+    });
+    
     return { 
       message: "If the email exists, a password reset link has been sent" 
     };
   }
 }
-
-
 export async function resetPassword(token, newPassword) {
   try {
     if (!token || token.length !== 64) {

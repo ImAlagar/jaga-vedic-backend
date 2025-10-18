@@ -360,11 +360,21 @@ export async function bulkSyncOrders(req, res) {
 }
 
 export async function cancelOrder(req, res) {
+  const startTime = Date.now();
+  
   try {
     const { orderId } = req.params;
     const { reason } = req.body;
     const userId = req.user.id;
     const userRole = req.user.role;
+
+    console.log('🔄 Backend: Cancel order request received', {
+      orderId,
+      userId,
+      userRole,
+      reason,
+      timestamp: new Date().toISOString()
+    });
 
     if (!orderId || isNaN(orderId)) {
       return errorResponse(res, "Valid order ID is required", HttpStatus.BAD_REQUEST);
@@ -384,21 +394,60 @@ export async function cancelOrder(req, res) {
       return errorResponse(res, "Access denied", HttpStatus.FORBIDDEN);
     }
 
+    console.log('🔄 Backend: Processing order cancellation...', {
+      orderId,
+      currentStatus: order.fulfillmentStatus,
+      paymentStatus: order.paymentStatus
+    });
+
+    // Process cancellation (this should be optimized to be fast)
     const cancelledOrder = await orderService.cancelOrder(
       parseInt(orderId), 
       reason || "Cancelled by user",
       isAdmin ? 'admin' : 'user'
     );
 
-    // Emit socket event for real-time update
-    socketEvents.emitOrderUpdate(OrderResponseDto.fromOrder(cancelledOrder));
+    const processingTime = Date.now() - startTime;
+    console.log('✅ Backend: Order cancellation completed', {
+      orderId,
+      newStatus: cancelledOrder.fulfillmentStatus,
+      refundStatus: cancelledOrder.refundStatus,
+      processingTime: `${processingTime}ms`
+    });
 
+    // Send immediate response - don't wait for async operations
+    const responseData = {
+      success: true,
+      message: 'Order cancelled successfully',
+      data: OrderResponseDto.fromOrder(cancelledOrder),
+      processingTime: `${processingTime}ms`,
+      refundInfo: cancelledOrder.refundStatus === 'PENDING' 
+        ? 'Refund will be processed in the background'
+        : 'No refund required'
+    };
+
+    console.log('📤 Backend: Sending response to frontend', {
+      orderId,
+      responseTime: `${processingTime}ms`
+    });
+
+    // Send response immediately
     return successResponse(
       res, 
-      OrderResponseDto.fromOrder(cancelledOrder), 
+      responseData, 
       'Order cancelled successfully'
     );
+
   } catch (error) {
+    const processingTime = Date.now() - startTime;
+    
+    console.error('❌ Backend: Order cancellation failed', {
+      orderId: req.params.orderId,
+      error: error.message,
+      processingTime: `${processingTime}ms`,
+      stack: error.stack
+    });
+
     return errorResponse(res, error.message, HttpStatus.BAD_REQUEST);
   }
 }

@@ -121,7 +121,7 @@ async createRazorpayOrder(orderId, userId) {
   }
 }
   // 🔥 OPTIMIZED: Faster payment verification
-  async verifyRazorpayPayment(paymentData, userId) {
+async verifyRazorpayPayment(paymentData, userId) {
     const { razorpay_order_id, razorpay_payment_id, razorpay_signature, orderId } = paymentData;
 
     try {
@@ -196,7 +196,7 @@ async createRazorpayOrder(orderId, userId) {
 
       throw error;
     }
-  }
+}
 
   // 🔥 NEW: Separate method for order status update
   async updateOrderPaymentStatus(orderId, status, errorMessage = null) {

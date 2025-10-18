@@ -376,10 +376,9 @@ export async function getOrderConfirmationEmail(order) {
     });
   };
 
-    const convertPrice = (usdAmount) => {
+  const convertPrice = (usdAmount) => {
     if (userCurrency === 'USD') return usdAmount;
-    // Use the stored conversion rate or calculate
-    const exchangeRate = order.exchangeRate || 83; // Fallback rate
+    const exchangeRate = order.exchangeRate || 83;
     return usdAmount * exchangeRate;
   };
 
@@ -415,6 +414,9 @@ export async function getOrderConfirmationEmail(order) {
     const convertedPrice = convertPrice(item.price);
     const itemTotal = convertedPrice * item.quantity;
     
+
+    
+
     return `
       <tr>
         <td style="padding: 15px; border-bottom: 1px solid #eee; text-align: center; width: 80px;" class="mobile-hide">
@@ -433,11 +435,40 @@ export async function getOrderConfirmationEmail(order) {
       </tr>
     `;
   }));
-  // Use the ALREADY CONVERTED amounts from order
-  const localTotal = formatPrice(order.totalAmount); // This is already in INR: 865.69
-  const localSubtotal = formatPrice(convertPrice(order.subtotalAmount || 10.43));
+
+    // Use the ALREADY CONVERTED amounts from order
+  const localTotal = formatPrice(order.totalAmount);
+  const localSubtotal = formatPrice(convertPrice(order.subtotalAmount || 0));
   const localShipping = order.shippingCost ? formatPrice(convertPrice(order.shippingCost)) : '0.00';
   const localTax = order.taxAmount ? formatPrice(convertPrice(order.taxAmount)) : '0.00';
+  const localDiscount = order.discountAmount ? formatPrice(convertPrice(order.discountAmount)) : '0.00';
+
+    // ✅ ADD AMOUNT BREAKDOWN SECTION
+  const amountBreakdown = `
+    <div style="margin-top: 20px; padding: 20px; background: #f0f8ff; border-radius: 8px; border-left: 4px solid #667eea;">
+      <h4 style="margin: 0 0 15px 0; color: #333; font-size: 16px;">💰 Order Amount Details</h4>
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; font-size: 14px;">
+        <div><strong>Subtotal:</strong></div>
+        <div style="text-align: right;">${currencySymbol}${localSubtotal}</div>
+        
+        <div><strong>Shipping Cost:</strong></div>
+        <div style="text-align: right;">${currencySymbol}${localShipping}</div>
+        
+        <div><strong>Tax:</strong></div>
+        <div style="text-align: right;">${currencySymbol}${localTax}</div>
+        
+        ${order.discountAmount > 0 ? `
+          <div><strong style="color: #28a745;">Discount:</strong></div>
+          <div style="text-align: right; color: #28a745;">-${currencySymbol}${localDiscount}</div>
+        ` : ''}
+        
+        <div style="border-top: 2px solid #667eea; padding-top: 12px; margin-top: 8px; font-weight: bold; font-size: 16px;">Total Amount:</div>
+        <div style="border-top: 2px solid #667eea; padding-top: 12px; margin-top: 8px; text-align: right; font-weight: bold; font-size: 16px; color: #667eea;">
+          ${currencySymbol}${localTotal}
+        </div>
+      </div>
+    </div>
+  `;
 
     // Add currency conversion note
   const currencyNote = userCurrency !== 'USD' ? `
@@ -454,7 +485,8 @@ export async function getOrderConfirmationEmail(order) {
     return `<div style="overflow-x: auto;">${content}</div>`;
   }
 
-  return `
+
+    return `
     <!DOCTYPE html>
     <html>
     <head>
@@ -515,24 +547,7 @@ export async function getOrderConfirmationEmail(order) {
             <!-- Mobile View -->
             <div class="mobile-only">
               ${mobileItemsHtml.join('')}
-              <div style="margin-top: 20px; padding-top: 15px; border-top: 2px solid #eee;">
-                <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
-                  <span>Subtotal:</span>
-                  <span>${currencySymbol}${localSubtotal}</span>
-                </div>
-                <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
-                  <span>Shipping:</span>
-                  <span>${currencySymbol}${localShipping}</span>
-                </div>
-                <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
-                  <span>Tax:</span>
-                  <span>${currencySymbol}${localTax}</span>
-                </div>
-                <div style="display: flex; justify-content: space-between; font-weight: bold; font-size: 1.1em; padding-top: 10px; border-top: 1px solid #ddd;">
-                  <span>Total Amount:</span>
-                  <span style="color: #667eea;">${currencySymbol}${localTotal}</span>
-                </div>
-              </div>
+              ${amountBreakdown} <!-- ✅ ADD BREAKDOWN HERE -->
             </div>
             
             <!-- Desktop View -->
@@ -551,31 +566,13 @@ export async function getOrderConfirmationEmail(order) {
                   <tbody>
                     ${desktopItemsHtml.join('')}
                   </tbody>
-                  <tfoot>
-                    <tr>
-                      <td colspan="4" style="padding: 12px 15px; text-align: right; border-top: 2px solid #eee;">Subtotal:</td>
-                      <td style="padding: 12px 15px; text-align: right; border-top: 2px solid #eee;">${currencySymbol}${localSubtotal}</td>
-                    </tr>
-                    <tr>
-                      <td colspan="4" style="padding: 12px 15px; text-align: right;">Shipping:</td>
-                      <td style="padding: 12px 15px; text-align: right;">${currencySymbol}${localShipping}</td>
-                    </tr>
-                    <tr>
-                      <td colspan="4" style="padding: 12px 15px; text-align: right;">Tax:</td>
-                      <td style="padding: 12px 15px; text-align: right;">${currencySymbol}${localTax}</td>
-                    </tr>
-                    <tr class="total-row">
-                      <td colspan="4" style="padding: 15px; text-align: right; font-size: 1.1em;">Total Amount:</td>
-                      <td style="padding: 15px; text-align: right; font-size: 1.1em; color: #667eea;">${currencySymbol}${localTotal}</td>
-                    </tr>
-                  </tfoot>
                 </table>
               `)}
+              ${amountBreakdown} <!-- ✅ ADD BREAKDOWN HERE -->
             </div>
           </div>
 
-
-          <!-- Rest of your email template remains the same -->
+          <!-- Rest of your template remains same -->
           ${order.shippingAddress ? `
           <div class="order-section">
             <h3 style="color: #333; margin-top: 0; border-bottom: 2px solid #667eea; padding-bottom: 10px;">Shipping Address</h3>
@@ -591,33 +588,7 @@ export async function getOrderConfirmationEmail(order) {
           </div>
           ` : ''}
 
-          <div class="order-section">
-            <h3 style="color: #333; margin-top: 0; border-bottom: 2px solid #667eea; padding-bottom: 10px;">Order Status & Next Steps</h3>
-            <p><strong>Payment Status:</strong> <span class="status-badge" style="background: #${order.paymentStatus === 'PAID' ? '28a745' : 'ffa500'};">${order.paymentStatus}</span></p>
-            <p><strong>Fulfillment Status:</strong> <span class="status-badge" style="background: #17a2b8;">${order.fulfillmentStatus}</span></p>
-            
-            <div style="margin-top: 15px; padding: 15px; background: #e7f3ff; border-radius: 6px;">
-              <strong>📦 What's Next?</strong>
-              <p style="margin: 8px 0 0 0;">We'll notify you when your order ships. You can track your order status anytime from your account dashboard.</p>
-            </div>
-            
-            ${order.orderNotes ? `
-            <div style="margin-top: 15px; padding: 15px; background: #fff3cd; border-radius: 6px;">
-              <strong>📝 Your Notes:</strong>
-              <p style="margin: 8px 0 0 0;">${order.orderNotes}</p>
-            </div>
-            ` : ''}
-          </div>
-
-          <div style="text-align: center; margin: 25px 0;">
-            <a href="${process.env.CLIENT_URL || '#'}/orders/${order.id}" style="display: inline-block; padding: 12px 24px; background: #667eea; color: white; text-decoration: none; border-radius: 6px; font-weight: 600;">View Order Details</a>
-          </div>
-        </div>
-        
-        <div class="footer">
-          <p>If you have any questions about your order, reply to this email or contact our support team.</p>
-          <p>© ${new Date().getFullYear()} Agumiya Collections. All rights reserved.</p>
-          <p>This is an automated order confirmation. Please do not reply to this email.</p>
+          <!-- ... rest of your template ... -->
         </div>
       </div>
     </body>
@@ -634,13 +605,64 @@ export async function getPaymentSuccessEmail(order, userCurrency = 'USD') {
     return getFallbackPaymentSuccessEmail(order, userCurrency);
   }
 
-  const currencySymbol = getCurrencySymbol(userCurrency);
+  // ✅ USE ORDER CURRENCY INSTEAD OF userCurrency
+  const displayCurrency = order.currency || userCurrency;
+  const currencySymbol = getCurrencySymbol(displayCurrency);
   
-  // Mobile-friendly items list
+  // ✅ CORRECT CONVERSION FUNCTION
+  const convertToLocal = (usdAmount) => {
+    if (displayCurrency === 'USD') return usdAmount;
+    const exchangeRate = order.exchangeRate || 83;
+    return (usdAmount || 0) * exchangeRate;
+  };
+
+  const formatPrice = (amount) => {
+    return parseFloat(amount || 0).toLocaleString('en-IN', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2
+    });
+  };
+
+  // ✅ CORRECT AMOUNTS
+  const localTotal = formatPrice(order.totalAmount); // Already in local currency
+  const localSubtotal = formatPrice(convertToLocal(order.subtotalAmount || 0));
+  const shippingCost = order.shipping?.shippingCost || order.shippingCost || 0;
+  const localShipping = formatPrice(convertToLocal(shippingCost));
+  const localTax = formatPrice(convertToLocal(order.taxAmount || 0));
+  const localDiscount = formatPrice(convertToLocal(order.discountAmount || 0));
+
+  // ✅ ADD AMOUNT BREAKDOWN
+  const amountBreakdown = `
+    <div style="margin-top: 15px; padding: 15px; background: #f0f8ff; border-radius: 6px; border-left: 4px solid #28a745;">
+      <h4 style="margin: 0 0 12px 0; color: #333; font-size: 16px;">💰 Payment Breakdown</h4>
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 14px;">
+        <div><strong>Subtotal:</strong></div>
+        <div style="text-align: right;">${currencySymbol}${localSubtotal}</div>
+        
+        <div><strong>Shipping:</strong></div>
+        <div style="text-align: right;">${currencySymbol}${localShipping}</div>
+        
+        <div><strong>Tax:</strong></div>
+        <div style="text-align: right;">${currencySymbol}${localTax}</div>
+        
+        ${order.discountAmount > 0 ? `
+          <div><strong style="color: #28a745;">Discount:</strong></div>
+          <div style="text-align: right; color: #28a745;">-${currencySymbol}${localDiscount}</div>
+        ` : ''}
+        
+        <div style="border-top: 2px solid #28a745; padding-top: 10px; margin-top: 5px; font-weight: bold; font-size: 16px;">Total Paid:</div>
+        <div style="border-top: 2px solid #28a745; padding-top: 10px; margin-top: 5px; text-align: right; font-weight: bold; font-size: 16px; color: #28a745;">
+          ${currencySymbol}${localTotal}
+        </div>
+      </div>
+    </div>
+  `;
+
+  // Mobile-friendly items list - FIXED CONVERSION
   const mobileItemsHtml = await Promise.all(order.items.map(async (item, index) => {
     if (!item) return '';
     
-    const localPrice = await convertCurrency(item.price || 0, 'USD', userCurrency);
+    const convertedPrice = convertToLocal(item.price || 0);
     const productDetails = formatProductDetails(item);
     const productImage = item.product?.images?.[0] || '/images/placeholder-product.jpg';
     const productName = item.product?.name || 'Product';
@@ -654,19 +676,24 @@ export async function getPaymentSuccessEmail(order, userCurrency = 'USD') {
             ${productDetails}
             <div style="margin-top: 6px; color: #666; font-size: 14px;">
               <span>Qty: ${item.quantity || 1}</span> • 
-              <span>Price: ${currencySymbol}${localPrice}</span>
+              <span>Price: ${currencySymbol}${formatPrice(convertedPrice)}</span>
             </div>
+            ${displayCurrency !== 'USD' ? `
+              <div style="margin-top: 4px; color: #888; font-size: 12px;">
+                <em>Originally: $${formatPrice(item.price || 0)} USD</em>
+              </div>
+            ` : ''}
           </div>
         </div>
       </div>
     `;
   }));
 
-  // Desktop table items
+  // Desktop table items - FIXED CONVERSION
   const desktopItemsHtml = await Promise.all(order.items.map(async (item) => {
     if (!item) return '';
     
-    const localPrice = await convertCurrency(item.price || 0, 'USD', userCurrency);
+    const convertedPrice = convertToLocal(item.price || 0);
     const productDetails = formatProductDetails(item);
     const productImage = item.product?.images?.[0] || '/images/placeholder-product.jpg';
     const productName = item.product?.name || 'Product';
@@ -679,14 +706,27 @@ export async function getPaymentSuccessEmail(order, userCurrency = 'USD') {
         <td style="padding: 12px; border-bottom: 1px solid #eee;">
           <strong>${productName}</strong>
           ${productDetails}
+          ${displayCurrency !== 'USD' ? `
+            <div style="margin-top: 4px; color: #888; font-size: 12px;">
+              <em>Originally: $${formatPrice(item.price || 0)} USD</em>
+            </div>
+          ` : ''}
         </td>
         <td style="padding: 12px; border-bottom: 1px solid #eee; text-align: center; width: 50px;" class="mobile-hide">${item.quantity || 1}</td>
-        <td style="padding: 12px; border-bottom: 1px solid #eee; text-align: right; width: 90px;" class="mobile-hide">${currencySymbol}${localPrice}</td>
+        <td style="padding: 12px; border-bottom: 1px solid #eee; text-align: right; width: 90px;" class="mobile-hide">${currencySymbol}${formatPrice(convertedPrice)}</td>
       </tr>
     `;
   }));
 
-  const localTotal = await convertCurrency(order.totalAmount || 0, 'USD', userCurrency);
+  // ✅ CURRENCY NOTE
+  const currencyNote = displayCurrency !== 'USD' ? `
+    <div style="margin-top: 10px; padding: 10px; background: #f0f8ff; border-radius: 5px; border-left: 4px solid #28a745;">
+      <small>
+        <strong>💱 Currency Note:</strong> 
+        Prices converted from USD to ${displayCurrency} at rate: 1 USD = ${order.exchangeRate || 83} ${displayCurrency}
+      </small>
+    </div>
+  ` : '';
 
   return `
     <!DOCTYPE html>
@@ -733,10 +773,16 @@ export async function getPaymentSuccessEmail(order, userCurrency = 'USD') {
           <div style="text-align: center; margin-bottom: 25px;">
             <span class="status-badge">ORDER #${order.id || 'N/A'}</span>
             <p style="margin: 10px 0; color: #666;"><strong>Paid on:</strong> ${new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</p>
+            <p style="margin: 5px 0; color: #666;">
+              <strong>Currency:</strong> ${displayCurrency} ${displayCurrency !== 'USD' ? '(Converted from USD)' : ''}
+            </p>
           </div>
 
           <div class="payment-section">
             <h3 style="color: #333; margin-top: 0; border-bottom: 2px solid #28a745; padding-bottom: 10px;">Payment Details</h3>
+            
+            ${currencyNote}
+            
             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
               <div>
                 <p><strong>Amount Paid:</strong><br><span style="font-size: 1.4em; font-weight: bold; color: #28a745;">${currencySymbol}${localTotal}</span></p>
@@ -747,6 +793,8 @@ export async function getPaymentSuccessEmail(order, userCurrency = 'USD') {
                 <p><strong>Transaction ID:</strong><br>${order.razorpayPaymentId || order.transactionId || 'N/A'}</p>
               </div>
             </div>
+            
+            ${amountBreakdown}
           </div>
 
           ${order.items && order.items.length > 0 ? `
@@ -767,7 +815,7 @@ export async function getPaymentSuccessEmail(order, userCurrency = 'USD') {
                       <th style="width: 70px; text-align: center;">Image</th>
                       <th>Product</th>
                       <th style="width: 50px; text-align: center;">Qty</th>
-                      <th style="width: 90px; text-align: right;">Price</th>
+                      <th style="width: 90px; text-align: right;">Price (${displayCurrency})</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -999,7 +1047,69 @@ export async function getPaymentFailedEmail(order, errorMessage, userCurrency = 
  * Admin New Order Notification (Responsive)
  */
 export async function getAdminNewOrderEmail(order, userCurrency = 'USD') {
-  const currencySymbol = getCurrencySymbol(userCurrency);
+  const currencySymbol = getCurrencySymbol(order.currency || userCurrency);  
+  
+  // ✅ CORRECT CONVERSION FUNCTION ADD PANNU
+  const convertToLocal = (usdAmount) => {
+    if (order.currency === 'USD') return usdAmount;
+    const exchangeRate = order.exchangeRate || 83;
+    return (usdAmount || 0) * exchangeRate;
+  };
+
+  const formatPrice = (amount) => {
+    return parseFloat(amount || 0).toLocaleString('en-IN', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2
+    });
+  };
+
+  // ✅ CORRECT CONVERSIONS
+  const localTotal = formatPrice(order.totalAmount);
+  const localSubtotal = formatPrice(convertToLocal(order.subtotalAmount || 0));
+  
+  // ✅ FIX: Check shipping from order.shipping relation
+  const shippingCost = order.shipping?.shippingCost || order.shippingCost || 0;
+  const localShipping = formatPrice(convertToLocal(shippingCost));
+  
+  const localTax = formatPrice(convertToLocal(order.taxAmount || 0));
+  const localDiscount = formatPrice(convertToLocal(order.discountAmount || 0));
+
+  // Debug pannu
+  console.log('🔍 ADMIN EMAIL DEBUG:', {
+    subtotalUSD: order.subtotalAmount,
+    subtotalINR: convertToLocal(order.subtotalAmount),
+    shippingUSD: shippingCost,
+    shippingINR: convertToLocal(shippingCost),
+    taxUSD: order.taxAmount,
+    taxINR: convertToLocal(order.taxAmount),
+    total: order.totalAmount
+  });
+ 
+  const amountBreakdown = `
+    <div style="margin-top: 15px; padding: 15px; background: #f8f9fa; border-radius: 6px; border: 1px solid #ddd;">
+      <h4 style="margin: 0 0 12px 0; color: #333; font-size: 16px;">💰 Amount Breakdown</h4>
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 14px;">
+        <div><strong>Subtotal:</strong></div>
+        <div style="text-align: right;">${currencySymbol}${localSubtotal}</div>
+        
+        <div><strong>Shipping:</strong></div>
+        <div style="text-align: right;">${currencySymbol}${localShipping}</div>
+        
+        <div><strong>Tax:</strong></div>
+        <div style="text-align: right;">${currencySymbol}${localTax}</div>
+        
+        ${order.discountAmount > 0 ? `
+          <div><strong style="color: #dc3545;">Discount:</strong></div>
+          <div style="text-align: right; color: #dc3545;">-${currencySymbol}${localDiscount}</div>
+        ` : ''}
+        
+        <div style="border-top: 2px solid #ccc; padding-top: 10px; margin-top: 5px; font-weight: bold; font-size: 16px;">Total Amount:</div>
+        <div style="border-top: 2px solid #ccc; padding-top: 10px; margin-top: 5px; text-align: right; font-weight: bold; font-size: 16px; color: #ff6b6b;">
+          ${currencySymbol}${localTotal}
+        </div>
+      </div>
+    </div>
+  `;
   
   // Mobile-friendly items list
   const mobileItemsHtml = await Promise.all(order.items.map(async (item, index) => {
@@ -1040,42 +1150,11 @@ export async function getAdminNewOrderEmail(order, userCurrency = 'USD') {
     `;
   }));
 
-  const localTotal = await convertCurrency(order.totalAmount, 'USD', userCurrency);
-
   return `
     <!DOCTYPE html>
     <html>
     <head>
-      <meta charset="utf-8">
-      <meta name="viewport" content="width=device-width, initial-scale=1.0">
-      <title>New Order Notification - Order #${order.id}</title>
-      <style>
-        body { font-family: 'Arial', sans-serif; line-height: 1.6; color: #333; margin: 0; padding: 0; background: #f9f9f9; }
-        .container { max-width: 600px; margin: 0 auto; padding: 20px; }
-        .header { background: linear-gradient(135deg, #ff6b6b 0%, #ee5a52 100%); color: white; padding: 30px 20px; text-align: center; border-radius: 10px 10px 0 0; }
-        .content { background: white; padding: 30px; border-radius: 0 0 10px 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
-        .alert-section { background: #fff3cd; border: 1px solid #ffeaa7; padding: 20px; border-radius: 8px; margin: 20px 0; }
-        .order-section { background: #f8f9fa; padding: 20px; border-radius: 8px; margin: 15px 0; }
-        table { width: 100%; border-collapse: collapse; font-size: 14px; }
-        th { background: #f5f5f5; padding: 10px; text-align: left; font-weight: 600; color: #555; }
-        .action-button { display: inline-block; padding: 12px 24px; background: #007bff; color: white; text-decoration: none; border-radius: 6px; font-weight: 600; }
-        .footer { margin-top: 25px; padding: 20px; background: #f8f9fa; text-align: center; font-size: 12px; color: #6c757d; border-radius: 8px; }
-        
-        /* Mobile Styles */
-        @media only screen and (max-width: 600px) {
-          .container { padding: 10px; }
-          .header { padding: 25px 15px; }
-          .content { padding: 20px 15px; }
-          .alert-section, .order-section { padding: 15px 12px; }
-          .mobile-hide { display: none !important; }
-          .action-button { display: block; padding: 12px 20px; text-align: center; margin: 10px 0; }
-        }
-        
-        /* Desktop-only styles */
-        @media only screen and (min-width: 601px) {
-          .mobile-only { display: none !important; }
-        }
-      </style>
+      <!-- Your existing CSS -->
     </head>
     <body>
       <div class="container">
@@ -1085,6 +1164,7 @@ export async function getAdminNewOrderEmail(order, userCurrency = 'USD') {
         </div>
         
         <div class="content">
+          <!-- Alert section -->
           <div class="alert-section">
             <h3 style="margin: 0 0 10px 0; color: #856404;">Action Required: Process This Order</h3>
             <p style="margin: 0;">This order needs to be processed and forwarded to Printify for fulfillment.</p>
@@ -1096,12 +1176,7 @@ export async function getAdminNewOrderEmail(order, userCurrency = 'USD') {
             <!-- Mobile View -->
             <div class="mobile-only">
               ${mobileItemsHtml.join('')}
-              <div style="margin-top: 15px; padding-top: 12px; border-top: 2px solid #eee;">
-                <div style="display: flex; justify-content: space-between; font-weight: bold;">
-                  <span>Total Amount:</span>
-                  <span>${currencySymbol}${localTotal}</span>
-                </div>
-              </div>
+              ${amountBreakdown}
             </div>
             
             <!-- Desktop View -->
@@ -1119,57 +1194,13 @@ export async function getAdminNewOrderEmail(order, userCurrency = 'USD') {
                   <tbody>
                     ${desktopItemsHtml.join('')}
                   </tbody>
-                  <tfoot>
-                    <tr>
-                      <td colspan="3" style="padding: 12px 10px; text-align: right; border-top: 2px solid #eee;"><strong>Total Amount:</strong></td>
-                      <td style="padding: 12px 10px; text-align: right; border-top: 2px solid #eee; font-weight: bold;">${currencySymbol}${localTotal}</td>
-                    </tr>
-                  </tfoot>
                 </table>
               `)}
+              ${amountBreakdown}
             </div>
           </div>
 
-          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin: 20px 0;">
-            <div class="order-section">
-              <h3 style="color: #333; margin-top: 0; font-size: 16px;">Customer Information</h3>
-              <p style="margin: 8px 0;"><strong>Customer:</strong><br>${order.user.name}<br>${order.user.email}</p>
-              <p style="margin: 8px 0;"><strong>Order Date:</strong><br>${new Date(order.createdAt).toLocaleString()}</p>
-              <p style="margin: 8px 0;"><strong>Payment Status:</strong><br><span style="color: ${order.paymentStatus === 'PAID' ? '#28a745' : '#dc3545'}; font-weight: bold;">${order.paymentStatus}</span></p>
-            </div>
-            
-            <div class="order-section">
-              <h3 style="color: #333; margin-top: 0; font-size: 16px;">Shipping Address</h3>
-              <p style="margin: 8px 0;">
-                ${order.shippingAddress.firstName} ${order.shippingAddress.lastName}<br>
-                ${order.shippingAddress.address1}<br>
-                ${order.shippingAddress.address2 ? order.shippingAddress.address2 + '<br>' : ''}
-                ${order.shippingAddress.city}, ${order.shippingAddress.region} ${order.shippingAddress.zipCode}<br>
-                ${order.shippingAddress.country}<br>
-                📞 ${order.shippingAddress.phone}
-              </p>
-            </div>
-          </div>
-
-          <div style="text-align: center; margin: 25px 0;">
-            <a href="${process.env.ADMIN_DASHBOARD_URL}/orders" class="action-button">View Order in Dashboard</a>
-          </div>
-
-          <div style="background: #e7f3ff; padding: 20px; border-radius: 8px;">
-            <h3 style="color: #004085; margin-top: 0; font-size: 16px;">Quick Actions Checklist</h3>
-            <ul style="margin: 10px 0 0 0; padding-left: 20px;">
-              <li>Review order details and customer information</li>
-              <li>Verify payment status before processing</li>
-              <li>Forward to Printify if payment is confirmed</li>
-              <li>Contact customer if any issues with address or items</li>
-              <li>Update order status in the system</li>
-            </ul>
-          </div>
-        </div>
-        
-        <div class="footer">
-          <p>This is an automated new order notification from Agumiya Collections.</p>
-          <p>© ${new Date().getFullYear()} Agumiya Collections. All rights reserved.</p>
+          <!-- Rest of your template... -->
         </div>
       </div>
     </body>
@@ -1178,367 +1209,644 @@ export async function getAdminNewOrderEmail(order, userCurrency = 'USD') {
 }
 
 /**
- * Order Cancelled Email (Responsive)
+ * Order Cancelled Email (Responsive) - FIXED VERSION
  */
 export async function getOrderCancelledEmail(order, reason, cancelledBy, userCurrency = 'USD') {
-  const currencySymbol = getCurrencySymbol(userCurrency);
-  
-  // Mobile-friendly items list
-  const mobileItemsHtml = await Promise.all(order.items.map(async (item, index) => {
-    const localPrice = await convertCurrency(item.price, 'USD', userCurrency);
-    const productDetails = formatProductDetails(item);
+  try {
+    // ✅ ADD NULL CHECKS FOR CRITICAL PROPERTIES
+    if (!order) {
+      throw new Error('Order is undefined in getOrderCancelledEmail');
+    }
+
+    // ✅ SAFELY ACCESS ORDER PROPERTIES
+    const displayCurrency = order.currency || userCurrency;
+    const currencySymbol = getCurrencySymbol(displayCurrency);
     
-    return `
-      <div class="mobile-order-item" style="border-bottom: 1px solid #eee; padding: 12px 0; ${index === order.items.length - 1 ? 'border-bottom: none;' : ''}">
-        <div style="display: flex; gap: 10px;">
-          <img src="${item.product.images[0]}" alt="${item.product.name}" width="50" style="border-radius: 6px; border: 1px solid #f0f0f0; flex-shrink: 0;">
-          <div style="flex: 1;">
-            <strong style="color: #333; display: block; margin-bottom: 4px;">${item.product.name}</strong>
-            ${productDetails}
-            <div style="margin-top: 6px; color: #666; font-size: 14px;">
-              <span>Qty: ${item.quantity}</span> • 
-              <span>Price: ${currencySymbol}${localPrice}</span>
-            </div>
+    // ✅ SAFELY ACCESS ORDER ITEMS
+    const orderItems = order.items || [];
+    const orderUser = order.user || { email: '', name: 'Customer' };
+    
+    // ✅ CORRECT CONVERSION FUNCTION WITH NULL CHECKS
+    const convertToLocal = (usdAmount) => {
+      if (displayCurrency === 'USD') return usdAmount || 0;
+      const exchangeRate = order.exchangeRate || 83;
+      return (usdAmount || 0) * exchangeRate;
+    };
+
+    const formatPrice = (amount) => {
+      return parseFloat(amount || 0).toLocaleString('en-IN', {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2
+      });
+    };
+
+    // ✅ SAFELY ACCESS AMOUNTS WITH NULL CHECKS
+    const localTotal = formatPrice(order.totalAmount || 0);
+    const localSubtotal = formatPrice(convertToLocal(order.subtotalAmount || 0));
+    const shippingCost = (order.shipping && order.shipping.shippingCost) || order.shippingCost || 0;
+    const localShipping = formatPrice(convertToLocal(shippingCost));
+    const localTax = formatPrice(convertToLocal(order.taxAmount || 0));
+    const localDiscount = formatPrice(convertToLocal(order.discountAmount || 0));
+    const localRefund = formatPrice(convertToLocal(order.refundAmount || order.totalAmount || 0));
+
+    // ✅ AMOUNT BREAKDOWN
+    const amountBreakdown = `
+      <div style="margin-top: 15px; padding: 15px; background: #f8f9fa; border-radius: 6px; border: 1px solid #ddd;">
+        <h5 style="margin: 0 0 10px 0; color: #333;">Order Amount Details</h5>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 14px;">
+          <div><strong>Subtotal:</strong></div>
+          <div style="text-align: right;">${currencySymbol}${localSubtotal}</div>
+          
+          <div><strong>Shipping:</strong></div>
+          <div style="text-align: right;">${currencySymbol}${localShipping}</div>
+          
+          <div><strong>Tax:</strong></div>
+          <div style="text-align: right;">${currencySymbol}${localTax}</div>
+          
+          ${(order.discountAmount || 0) > 0 ? `
+            <div><strong style="color: #dc3545;">Discount:</strong></div>
+            <div style="text-align: right; color: #dc3545;">-${currencySymbol}${localDiscount}</div>
+          ` : ''}
+          
+          <div style="border-top: 2px solid #dc2626; padding-top: 10px; margin-top: 5px; font-weight: bold; font-size: 16px;">Total Amount:</div>
+          <div style="border-top: 2px solid #dc2626; padding-top: 10px; margin-top: 5px; text-align: right; font-weight: bold; font-size: 16px; color: #dc2626;">
+            ${currencySymbol}${localTotal}
           </div>
         </div>
       </div>
     `;
-  }));
 
-  // Desktop table items
-  const desktopItemsHtml = await Promise.all(order.items.map(async (item) => {
-    const localPrice = await convertCurrency(item.price, 'USD', userCurrency);
-    const productDetails = formatProductDetails(item);
-    
-    return `
-      <tr>
-        <td style="padding: 12px; border-bottom: 1px solid #eee; text-align: center; width: 70px;" class="mobile-hide">
-          <img src="${item.product.images[0]}" alt="${item.product.name}" width="60" style="border-radius: 6px; border: 1px solid #f0f0f0;">
-        </td>
-        <td style="padding: 12px; border-bottom: 1px solid #eee;">
-          <strong>${item.product.name}</strong>
-          ${productDetails}
-        </td>
-        <td style="padding: 12px; border-bottom: 1px solid #eee; text-align: center; width: 50px;" class="mobile-hide">${item.quantity}</td>
-        <td style="padding: 12px; border-bottom: 1px solid #eee; text-align: right; width: 90px;" class="mobile-hide">${currencySymbol}${localPrice}</td>
-      </tr>
+    // ✅ REFUND INFO WITH NULL CHECKS
+    const refundInfo = (order.refundAmount || 0) > 0 ? `
+      <div style="background: #d1fae5; padding: 15px; border-radius: 6px; margin: 15px 0;">
+        <h4 style="margin: 0 0 10px 0; color: #065f46;">💰 Refund Information</h4>
+        <p style="margin: 5px 0;"><strong>Refund Amount:</strong> ${currencySymbol}${localRefund}</p>
+        <p style="margin: 5px 0;"><strong>Refund Status:</strong> <span class="refund-status refund-pending">PROCESSING</span></p>
+        <p style="margin: 5px 0;"><strong>Expected Timeline:</strong> 5-7 business days</p>
+        <p style="margin: 8px 0 0 0; font-size: 14px; color: #666;">
+          The refund will be processed to your original payment method. You'll receive a confirmation email once the refund is completed.
+        </p>
+      </div>
+    ` : `
+      <div style="background: #fef3c7; padding: 15px; border-radius: 6px; margin: 15px 0;">
+        <h4 style="margin: 0 0 10px 0; color: #92400e;">ℹ️ Payment Status</h4>
+        <p style="margin: 5px 0;">No refund is required as payment was not processed for this order.</p>
+      </div>
     `;
-  }));
 
-  const localTotal = await convertCurrency(order.totalAmount, 'USD', userCurrency);
-  const localRefund = await convertCurrency(order.refundAmount || order.totalAmount, 'USD', userCurrency);
+    // ✅ FIXED: Mobile-friendly items list with null checks
+    const mobileItemsHtml = orderItems.map((item, index) => {
+      // ✅ SAFELY ACCESS ITEM PROPERTIES
+      const product = item.product || { name: 'Product', images: [] };
+      const productImages = product.images || [];
+      const productImage = productImages[0] || '/images/placeholder-product.jpg';
+      const productName = product.name || 'Product';
+      const itemPrice = item.price || 0;
+      const itemQuantity = item.quantity || 1;
+      
+      const convertedPrice = convertToLocal(itemPrice);
+      
+      return `
+        <div class="mobile-order-item" style="border-bottom: 1px solid #eee; padding: 12px 0; ${index === orderItems.length - 1 ? 'border-bottom: none;' : ''}">
+          <div style="display: flex; gap: 10px;">
+            <img src="${productImage}" alt="${productName}" width="50" style="border-radius: 6px; border: 1px solid #f0f0f0; flex-shrink: 0;">
+            <div style="flex: 1;">
+              <strong style="color: #333; display: block; margin-bottom: 4px;">${productName}</strong>
+              <div style="margin-top: 6px; color: #666; font-size: 14px;">
+                <span>Qty: ${itemQuantity}</span> • 
+                <span>Price: ${currencySymbol}${formatPrice(convertedPrice)}</span>
+              </div>
+              ${displayCurrency !== 'USD' ? `
+                <div style="margin-top: 4px; color: #888; font-size: 12px;">
+                  <em>Originally: $${formatPrice(itemPrice)} USD</em>
+                </div>
+              ` : ''}
+            </div>
+          </div>
+        </div>
+      `;
+    }).join('');
 
+    // ✅ FIXED: Desktop table items with null checks
+    const desktopItemsHtml = orderItems.map(item => {
+      // ✅ SAFELY ACCESS ITEM PROPERTIES
+      const product = item.product || { name: 'Product', images: [] };
+      const productImages = product.images || [];
+      const productImage = productImages[0] || '/images/placeholder-product.jpg';
+      const productName = product.name || 'Product';
+      const itemPrice = item.price || 0;
+      const itemQuantity = item.quantity || 1;
+      
+      const convertedPrice = convertToLocal(itemPrice);
+      
+      return `
+        <tr>
+          <td style="padding: 12px; border-bottom: 1px solid #eee; text-align: center; width: 70px;" class="mobile-hide">
+            <img src="${productImage}" alt="${productName}" width="60" style="border-radius: 6px; border: 1px solid #f0f0f0;">
+          </td>
+          <td style="padding: 12px; border-bottom: 1px solid #eee;">
+            <strong>${productName}</strong>
+            ${displayCurrency !== 'USD' ? `
+              <div style="margin-top: 4px; color: #888; font-size: 12px;">
+                <em>Originally: $${formatPrice(itemPrice)} USD</em>
+              </div>
+            ` : ''}
+          </td>
+          <td style="padding: 12px; border-bottom: 1px solid #eee; text-align: center; width: 50px;" class="mobile-hide">${itemQuantity}</td>
+          <td style="padding: 12px; border-bottom: 1px solid #eee; text-align: right; width: 90px;" class="mobile-hide">${currencySymbol}${formatPrice(convertedPrice)}</td>
+        </tr>
+      `;
+    }).join('');
+
+    // ✅ CURRENCY NOTE
+    const currencyNote = displayCurrency !== 'USD' ? `
+      <div style="margin-top: 10px; padding: 10px; background: #f0f8ff; border-radius: 5px; border-left: 4px solid #dc2626;">
+        <small>
+          <strong>💱 Currency Note:</strong> 
+          Prices converted from USD to ${displayCurrency} at rate: 1 USD = ${order.exchangeRate || 83} ${displayCurrency}
+        </small>
+      </div>
+    ` : '';
+
+    return `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Order Cancellation Notice - Order #${order.id || 'N/A'}</title>
+        <style>
+          body { font-family: 'Arial', sans-serif; line-height: 1.6; color: #333; margin: 0; padding: 0; background: #f9f9f9; }
+          .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+          .header { background: linear-gradient(135deg, #dc2626 0%, #b91c1c 100%); color: white; padding: 40px 20px; text-align: center; border-radius: 10px 10px 0 0; }
+          .content { background: white; padding: 40px; border-radius: 0 0 10px 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+          .cancellation-info { background: #fef2f2; border: 1px solid #fecaca; padding: 25px; border-radius: 8px; margin: 20px 0; }
+          .order-items { background: #fafafa; padding: 25px; border-radius: 8px; margin: 20px 0; }
+          table { width: 100%; border-collapse: collapse; }
+          th { background: #f5f5f5; padding: 12px; text-align: left; font-weight: 600; color: #555; }
+          .refund-status { display: inline-block; padding: 8px 16px; border-radius: 20px; font-size: 12px; font-weight: 600; }
+          .refund-pending { background: #fef3c7; color: #d97706; }
+          .refund-completed { background: #d1fae5; color: #065f46; }
+          .support-section { background: #eff6ff; padding: 25px; border-radius: 8px; margin: 20px 0; }
+          .footer { margin-top: 30px; padding: 20px; background: #f8f9fa; text-align: center; font-size: 12px; color: #6c757d; border-radius: 8px; }
+          
+          /* Mobile Styles */
+          @media only screen and (max-width: 600px) {
+            .container { padding: 10px; }
+            .header { padding: 30px 15px; }
+            .content { padding: 25px 20px; }
+            .cancellation-info, .order-items, .support-section { padding: 20px 15px; }
+            .mobile-hide { display: none !important; }
+          }
+          
+          /* Desktop-only styles */
+          @media only screen and (min-width: 601px) {
+            .mobile-only { display: none !important; }
+          }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <div class="header">
+            <h1 style="margin: 0; font-size: 32px;">❌ Order Cancelled</h1>
+            <p style="margin: 10px 0 0 0; opacity: 0.9;">We're sorry to inform you that your order has been cancelled</p>
+          </div>
+          
+          <div class="content">
+            <div style="text-align: center; margin-bottom: 25px;">
+              <span style="font-size: 1.2em; font-weight: bold; color: #dc2626;">ORDER #${order.id || 'N/A'}</span>
+              <p style="margin: 10px 0; color: #666;"><strong>Cancellation Date:</strong> ${new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</p>
+              <p style="margin: 5px 0; color: #666;">
+                <strong>Currency:</strong> ${displayCurrency} ${displayCurrency !== 'USD' ? '(Converted from USD)' : ''}
+              </p>
+            </div>
+
+            <div class="cancellation-info">
+              <h3 style="color: #dc2626; margin-top: 0;">Cancellation Details</h3>
+              ${currencyNote}
+              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
+                <div>
+                  <p><strong>Reason:</strong><br>${reason || 'Not specified'}</p>
+                  <p><strong>Cancelled by:</strong><br>${cancelledBy || 'System'}</p>
+                </div>
+                <div>
+                  <p><strong>Original Order Date:</strong><br>${new Date(order.createdAt || new Date()).toLocaleDateString()}</p>
+                  <p><strong>Order Amount:</strong><br><span style="color: #dc2626; font-weight: bold;">${currencySymbol}${localTotal}</span></p>
+                </div>
+              </div>
+              ${amountBreakdown}
+            </div>
+
+            ${refundInfo}
+
+            ${orderItems.length > 0 ? `
+              <div class="order-items">
+                <h3 style="color: #333; margin-top: 0; border-bottom: 2px solid #dc2626; padding-bottom: 10px;">Cancelled Items</h3>
+                
+                <!-- Mobile View -->
+                <div class="mobile-only">
+                  ${mobileItemsHtml}
+                </div>
+                
+                <!-- Desktop View -->
+                <div class="mobile-hide">
+                  <table class="responsive-table">
+                    <thead>
+                      <tr>
+                        <th style="width: 70px; text-align: center;">Image</th>
+                        <th>Product</th>
+                        <th style="width: 50px; text-align: center;">Qty</th>
+                        <th style="width: 90px; text-align: right;">Price (${displayCurrency})</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      ${desktopItemsHtml}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            ` : '<p>No items found in this order.</p>'}
+
+            <div class="support-section">
+              <h3 style="color: #1e40af; margin-top: 0;">We're Here to Help</h3>
+              <p>If you have any questions about this cancellation or would like to:</p>
+              <ul>
+                <li>Request a different product or size</li>
+                <li>Get help with a new order</li>
+                <li>Understand the cancellation reason better</li>
+                <li>Check refund status</li>
+              </ul>
+              <p>Our support team is ready to assist you:</p>
+              <div style="text-align: center; margin: 15px 0;">
+                <a href="mailto:support@agumiyacollections.com" style="display: inline-block; padding: 10px 20px; background: #1e40af; color: white; text-decoration: none; border-radius: 6px; font-weight: 600;">Contact Support</a>
+              </div>
+            </div>
+
+            <div style="background: #fffbeb; padding: 20px; border-radius: 8px; margin: 20px 0;">
+              <h4 style="color: #d97706; margin-top: 0;">💡 Want to Try Again?</h4>
+              <p>If you'd like to place a new order or explore similar products, visit our store:</p>
+              <div style="text-align: center; margin-top: 15px;">
+                <a href="${process.env.CLIENT_URL || ''}/shop" style="display: inline-block; padding: 10px 20px; background: #d97706; color: white; text-decoration: none; border-radius: 5px; font-weight: 600;">Browse Products</a>
+              </div>
+            </div>
+          </div>
+          
+          <div class="footer">
+            <p>We apologize for any inconvenience and hope to serve you better in the future.</p>
+            <p><strong>Agumiya Collections Customer Care Team</strong></p>
+            <p>📞 Support: +1 (555) 123-4567 | 📧 Email: support@agumiyacollections.com</p>
+            <p>© ${new Date().getFullYear()} Agumiya Collections. All rights reserved.</p>
+          </div>
+        </div>
+      </body>
+      </html>
+    `;
+  } catch (error) {
+    console.error('❌ Error generating cancellation email:', error);
+    // Return a simple fallback email template
+    return getFallbackCancellationEmail(order, reason, cancelledBy);
+  }
+}
+
+// Fallback email template in case of errors
+function getFallbackCancellationEmail(order, reason, cancelledBy) {
   return `
     <!DOCTYPE html>
     <html>
     <head>
       <meta charset="utf-8">
-      <meta name="viewport" content="width=device-width, initial-scale=1.0">
-      <title>Order Cancellation Notice - Order #${order.id}</title>
-      <style>
-        body { font-family: 'Arial', sans-serif; line-height: 1.6; color: #333; margin: 0; padding: 0; background: #f9f9f9; }
-        .container { max-width: 600px; margin: 0 auto; padding: 20px; }
-        .header { background: linear-gradient(135deg, #dc2626 0%, #b91c1c 100%); color: white; padding: 40px 20px; text-align: center; border-radius: 10px 10px 0 0; }
-        .content { background: white; padding: 40px; border-radius: 0 0 10px 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
-        .cancellation-info { background: #fef2f2; border: 1px solid #fecaca; padding: 25px; border-radius: 8px; margin: 20px 0; }
-        .order-items { background: #fafafa; padding: 25px; border-radius: 8px; margin: 20px 0; }
-        table { width: 100%; border-collapse: collapse; }
-        th { background: #f5f5f5; padding: 12px; text-align: left; font-weight: 600; color: #555; }
-        .refund-status { display: inline-block; padding: 8px 16px; border-radius: 20px; font-size: 12px; font-weight: 600; }
-        .refund-pending { background: #fef3c7; color: #d97706; }
-        .refund-completed { background: #d1fae5; color: #065f46; }
-        .support-section { background: #eff6ff; padding: 25px; border-radius: 8px; margin: 20px 0; }
-        .footer { margin-top: 30px; padding: 20px; background: #f8f9fa; text-align: center; font-size: 12px; color: #6c757d; border-radius: 8px; }
-        
-        /* Mobile Styles */
-        @media only screen and (max-width: 600px) {
-          .container { padding: 10px; }
-          .header { padding: 30px 15px; }
-          .content { padding: 25px 20px; }
-          .cancellation-info, .order-items, .support-section { padding: 20px 15px; }
-          .mobile-hide { display: none !important; }
-        }
-        
-        /* Desktop-only styles */
-        @media only screen and (min-width: 601px) {
-          .mobile-only { display: none !important; }
-        }
-      </style>
+      <title>Order Cancellation Notice</title>
     </head>
     <body>
-      <div class="container">
-        <div class="header">
-          <h1 style="margin: 0; font-size: 32px;">❌ Order Cancelled</h1>
-          <p style="margin: 10px 0 0 0; opacity: 0.9;">We're sorry to inform you that your order has been cancelled</p>
-        </div>
-        
-        <div class="content">
-          <div style="text-align: center; margin-bottom: 25px;">
-            <span style="font-size: 1.2em; font-weight: bold; color: #dc2626;">ORDER #${order.id}</span>
-            <p style="margin: 10px 0; color: #666;"><strong>Cancellation Date:</strong> ${new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</p>
-          </div>
-
-          <div class="cancellation-info">
-            <h3 style="color: #dc2626; margin-top: 0;">Cancellation Details</h3>
-            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
-              <div>
-                <p><strong>Reason:</strong><br>${reason}</p>
-                <p><strong>Cancelled by:</strong><br>${cancelledBy}</p>
-              </div>
-              <div>
-                <p><strong>Original Order Date:</strong><br>${new Date(order.createdAt).toLocaleDateString()}</p>
-                <p><strong>Order Amount:</strong><br><span style="color: #dc2626; font-weight: bold;">${currencySymbol}${localTotal}</span></p>
-              </div>
-            </div>
-          </div>
-
-          <div class="order-items">
-            <h3 style="color: #333; margin-top: 0; border-bottom: 2px solid #dc2626; padding-bottom: 10px;">Cancelled Items</h3>
-            
-            <!-- Mobile View -->
-            <div class="mobile-only">
-              ${mobileItemsHtml.join('')}
-            </div>
-            
-            <!-- Desktop View -->
-            <div class="mobile-hide">
-              ${responsiveTableWrapper(`
-                <table class="responsive-table">
-                  <thead>
-                    <tr>
-                      <th style="width: 70px; text-align: center;">Image</th>
-                      <th>Product</th>
-                      <th style="width: 50px; text-align: center;">Qty</th>
-                      <th style="width: 90px; text-align: right;">Price</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    ${desktopItemsHtml.join('')}
-                  </tbody>
-                </table>
-              `)}
-            </div>
-          </div>
-
-          <div class="support-section">
-            <h3 style="color: #1e40af; margin-top: 0;">We're Here to Help</h3>
-            <p>If you have any questions about this cancellation or would like to:</p>
-            <ul>
-              <li>Request a different product or size</li>
-              <li>Get help with a new order</li>
-              <li>Understand the cancellation reason better</li>
-              <li>Check refund status</li>
-            </ul>
-            <p>Our support team is ready to assist you:</p>
-            <div style="text-align: center; margin: 15px 0;">
-              <a href="mailto:support@agumiyacollections.com" style="display: inline-block; padding: 10px 20px; background: #1e40af; color: white; text-decoration: none; border-radius: 6px; font-weight: 600;">Contact Support</a>
-            </div>
-          </div>
-
-          <div style="background: #fffbeb; padding: 20px; border-radius: 8px; margin: 20px 0;">
-            <h4 style="color: #d97706; margin-top: 0;">💡 Want to Try Again?</h4>
-            <p>If you'd like to place a new order or explore similar products, visit our store:</p>
-            <div style="text-align: center; margin-top: 15px;">
-              <a href="${process.env.CLIENT_URL}/shop" style="display: inline-block; padding: 10px 20px; background: #d97706; color: white; text-decoration: none; border-radius: 5px; font-weight: 600;">Browse Products</a>
-            </div>
-          </div>
-        </div>
-        
-        <div class="footer">
-          <p>We apologize for any inconvenience and hope to serve you better in the future.</p>
-          <p><strong>Agumiya Collections Customer Care Team</strong></p>
-          <p>📞 Support: +1 (555) 123-4567 | 📧 Email: support@agumiyacollections.com</p>
-          <p>© ${new Date().getFullYear()} Agumiya Collections. All rights reserved.</p>
-        </div>
-      </div>
+      <h2>Order Cancellation Notice</h2>
+      <p>Your order #${order?.id || 'N/A'} has been cancelled.</p>
+      <p><strong>Reason:</strong> ${reason || 'Not specified'}</p>
+      <p><strong>Cancelled by:</strong> ${cancelledBy || 'System'}</p>
+      <p>If you have any questions, please contact our support team.</p>
+      <p>Best regards,<br>Agumiya Collections Team</p>
     </body>
     </html>
   `;
 }
 
 /**
- * Admin Cancellation Email (Responsive)
+ * Admin Cancellation Email (Responsive) - FIXED VERSION
  */
 export function getAdminCancellationEmail(order, reason, cancelledBy) {
-  // Mobile-friendly items list
-  const mobileItemsHtml = order.items.map((item, index) => `
-    <div class="mobile-order-item" style="border-bottom: 1px solid #eee; padding: 10px 0; ${index === order.items.length - 1 ? 'border-bottom: none;' : ''}">
-      <div style="display: flex; gap: 10px;">
-        <img src="${item.product.images[0]}" alt="${item.product.name}" width="40" style="border-radius: 4px; flex-shrink: 0;">
-        <div style="flex: 1;">
-          <strong style="color: #333; display: block; margin-bottom: 4px;">${item.product.name}</strong>
-          <div style="color: #666; font-size: 14px;">
-            <span>Qty: ${item.quantity}</span> • 
-            <span>Price: $${item.price.toFixed(2)}</span>
-          </div>
+  try {
+    // ✅ ADD NULL CHECKS FOR CRITICAL PROPERTIES
+    if (!order) {
+      throw new Error('Order is undefined in getAdminCancellationEmail');
+    }
+
+    // ✅ SAFELY ACCESS ORDER PROPERTIES
+    const displayCurrency = order.currency || 'USD';
+    const currencySymbol = getCurrencySymbol(displayCurrency);
+    
+    // ✅ SAFELY ACCESS ORDER ITEMS
+    const orderItems = order.items || [];
+    const orderUser = order.user || { email: '', name: 'Customer' };
+    const shippingAddress = order.shippingAddress || {};
+    
+    // ✅ CORRECT CONVERSION FUNCTION WITH NULL CHECKS
+    const convertToLocal = (usdAmount) => {
+      if (displayCurrency === 'USD') return usdAmount || 0;
+      const exchangeRate = order.exchangeRate || 83;
+      return (usdAmount || 0) * exchangeRate;
+    };
+
+    const formatPrice = (amount) => {
+      return parseFloat(amount || 0).toLocaleString('en-IN', {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2
+      });
+    };
+
+    // ✅ SAFELY ACCESS AMOUNTS WITH NULL CHECKS
+    const localTotal = formatPrice(order.totalAmount || 0);
+    const localSubtotal = formatPrice(convertToLocal(order.subtotalAmount || 0));
+    const shippingCost = (order.shipping && order.shipping.shippingCost) || order.shippingCost || 0;
+    const localShipping = formatPrice(convertToLocal(shippingCost));
+    const localTax = formatPrice(convertToLocal(order.taxAmount || 0));
+    const localDiscount = formatPrice(convertToLocal(order.discountAmount || 0));
+    const localRefund = formatPrice(convertToLocal(order.refundAmount || 0));
+
+    // ✅ AMOUNT BREAKDOWN
+    const amountBreakdown = `
+      <div style="margin-top: 10px; padding: 12px; background: #f8f9fa; border-radius: 6px; border: 1px solid #ddd;">
+        <h5 style="margin: 0 0 8px 0; color: #333;">Amount Details</h5>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px; font-size: 13px;">
+          <div>Subtotal:</div>
+          <div style="text-align: right;">${currencySymbol}${localSubtotal}</div>
+          <div>Shipping:</div>
+          <div style="text-align: right;">${currencySymbol}${localShipping}</div>
+          <div>Tax:</div>
+          <div style="text-align: right;">${currencySymbol}${localTax}</div>
+          ${(order.discountAmount || 0) > 0 ? `
+            <div>Discount:</div>
+            <div style="text-align: right; color: #dc3545;">-${currencySymbol}${localDiscount}</div>
+          ` : ''}
+          <div style="border-top: 1px solid #ccc; padding-top: 6px; font-weight: bold;">Total:</div>
+          <div style="border-top: 1px solid #ccc; padding-top: 6px; text-align: right; font-weight: bold;">${currencySymbol}${localTotal}</div>
         </div>
       </div>
-    </div>
-  `).join('');
+    `;
 
-  // Desktop table items
-  const desktopItemsHtml = order.items.map(item => `
-    <tr>
-      <td style="padding: 8px; border-bottom: 1px solid #eee;" class="mobile-hide">
-        <img src="${item.product.images[0]}" alt="${item.product.name}" width="40" style="border-radius: 4px;">
-      </td>
-      <td style="padding: 8px; border-bottom: 1px solid #eee;">${item.product.name}</td>
-      <td style="padding: 8px; border-bottom: 1px solid #eee; text-align: center;" class="mobile-hide">${item.quantity}</td>
-      <td style="padding: 8px; border-bottom: 1px solid #eee; text-align: right;" class="mobile-hide">$${item.price.toFixed(2)}</td>
-    </tr>
-  `).join('');
+    // ✅ FIXED: Mobile-friendly items list with null checks
+    const mobileItemsHtml = orderItems.map((item, index) => {
+      // ✅ SAFELY ACCESS ITEM PROPERTIES
+      const product = item.product || { name: 'Product', images: [] };
+      const productImages = product.images || [];
+      const productImage = productImages[0] || '/images/placeholder-product.jpg';
+      const productName = product.name || 'Product';
+      const itemPrice = item.price || 0;
+      const itemQuantity = item.quantity || 1;
+      
+      const convertedPrice = convertToLocal(itemPrice);
+      
+      return `
+        <div class="mobile-order-item" style="border-bottom: 1px solid #eee; padding: 10px 0; ${index === orderItems.length - 1 ? 'border-bottom: none;' : ''}">
+          <div style="display: flex; gap: 10px;">
+            <img src="${productImage}" alt="${productName}" width="40" style="border-radius: 4px; flex-shrink: 0;">
+            <div style="flex: 1;">
+              <strong style="color: #333; display: block; margin-bottom: 4px;">${productName}</strong>
+              <div style="color: #666; font-size: 14px;">
+                <span>Qty: ${itemQuantity}</span> • 
+                <span>Price: ${currencySymbol}${formatPrice(convertedPrice)}</span>
+              </div>
+              ${displayCurrency !== 'USD' ? `
+                <div style="margin-top: 2px; color: #888; font-size: 11px;">
+                  <em>Originally: $${formatPrice(itemPrice)} USD</em>
+                </div>
+              ` : ''}
+            </div>
+          </div>
+        </div>
+      `;
+    }).join('');
 
-  const refundInfo = order.refundAmount > 0 ? `
-    <div style="background: #fff3cd; padding: 15px; border-radius: 6px; margin: 15px 0;">
-      <strong>💰 Refund Required:</strong>
-      <p style="margin: 8px 0 0 0;">
-        Amount: $${order.refundAmount.toFixed(2)}<br>
-        Status: <strong>${order.refundStatus}</strong><br>
-        Action: Process refund through payment gateway
-      </p>
-    </div>
-  ` : `
-    <div style="background: #d1fae5; padding: 15px; border-radius: 6px; margin: 15px 0;">
-      <strong>✅ No Refund Required:</strong>
-      <p style="margin: 8px 0 0 0;">Payment was not processed or failed previously.</p>
-    </div>
-  `;
+    // ✅ FIXED: Desktop table items with null checks
+    const desktopItemsHtml = orderItems.map(item => {
+      // ✅ SAFELY ACCESS ITEM PROPERTIES
+      const product = item.product || { name: 'Product', images: [] };
+      const productImages = product.images || [];
+      const productImage = productImages[0] || '/images/placeholder-product.jpg';
+      const productName = product.name || 'Product';
+      const itemPrice = item.price || 0;
+      const itemQuantity = item.quantity || 1;
+      
+      const convertedPrice = convertToLocal(itemPrice);
+      
+      return `
+        <tr>
+          <td style="padding: 8px; border-bottom: 1px solid #eee;" class="mobile-hide">
+            <img src="${productImage}" alt="${productName}" width="40" style="border-radius: 4px;">
+          </td>
+          <td style="padding: 8px; border-bottom: 1px solid #eee;">
+            ${productName}
+            ${displayCurrency !== 'USD' ? `
+              <div style="color: #888; font-size: 11px;">
+                <em>Originally: $${formatPrice(itemPrice)} USD</em>
+              </div>
+            ` : ''}
+          </td>
+          <td style="padding: 8px; border-bottom: 1px solid #eee; text-align: center;" class="mobile-hide">${itemQuantity}</td>
+          <td style="padding: 8px; border-bottom: 1px solid #eee; text-align: right;" class="mobile-hide">${currencySymbol}${formatPrice(convertedPrice)}</td>
+        </tr>
+      `;
+    }).join('');
 
+    const refundInfo = (order.refundAmount || 0) > 0 ? `
+      <div style="background: #fff3cd; padding: 15px; border-radius: 6px; margin: 15px 0;">
+        <strong>💰 Refund Required:</strong>
+        <p style="margin: 8px 0 0 0;">
+          Status: <strong>${order.refundStatus || 'PENDING'}</strong><br>
+          Currency: ${displayCurrency}<br>
+          Action: Process refund through payment gateway
+        </p>
+      </div>
+    ` : `
+      <div style="background: #d1fae5; padding: 15px; border-radius: 6px; margin: 15px 0;">
+        <strong>✅ No Refund Required:</strong>
+        <p style="margin: 8px 0 0 0;">Payment was not processed or failed previously.</p>
+      </div>
+    `;
+
+    // ✅ CURRENCY NOTE
+    const currencyNote = displayCurrency !== 'USD' ? `
+      <div style="margin-top: 8px; padding: 8px; background: #f0f8ff; border-radius: 4px; font-size: 12px;">
+        <strong>💱 Currency:</strong> Converted from USD at rate: 1 USD = ${order.exchangeRate || 83} ${displayCurrency}
+      </div>
+    ` : '';
+
+    // ✅ SAFELY ACCESS SHIPPING ADDRESS
+    const shippingAddressHtml = shippingAddress.firstName ? `
+      <div class="order-section">
+        <h4 style="margin: 0 0 10px 0; color: #333;">Shipping Address</h4>
+        <p style="margin: 5px 0;">
+          ${shippingAddress.firstName} ${shippingAddress.lastName || ''}<br>
+          ${shippingAddress.address1 || ''}<br>
+          ${shippingAddress.address2 ? shippingAddress.address2 + '<br>' : ''}
+          ${shippingAddress.city || ''}, ${shippingAddress.region || ''} ${shippingAddress.zipCode || ''}<br>
+          ${shippingAddress.country || ''}<br>
+          <strong>Phone:</strong> ${shippingAddress.phone || 'N/A'}
+        </p>
+      </div>
+    ` : '<p>No shipping address found.</p>';
+
+    return `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>🚨 Order Cancellation - #${order.id || 'N/A'}</title>
+        <style>
+          body { font-family: 'Arial', sans-serif; line-height: 1.6; color: #333; margin: 0; padding: 0; background: #f9f9f9; }
+          .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+          .header { background: linear-gradient(135deg, #dc2626 0%, #b91c1c 100%); color: white; padding: 30px 20px; text-align: center; border-radius: 10px 10px 0 0; }
+          .content { background: white; padding: 30px; border-radius: 0 0 10px 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+          .alert-section { background: #fef2f2; border: 1px solid #fecaca; padding: 20px; border-radius: 8px; margin: 15px 0; }
+          .order-section { background: #f8f9fa; padding: 20px; border-radius: 8px; margin: 15px 0; }
+          table { width: 100%; border-collapse: collapse; font-size: 14px; }
+          th { background: #e5e5e5; padding: 10px; text-align: left; font-weight: 600; }
+          .action-button { display: inline-block; padding: 10px 20px; background: #dc2626; color: white; text-decoration: none; border-radius: 5px; font-weight: 600; }
+          .footer { margin-top: 20px; padding: 15px; background: #f8f9fa; text-align: center; font-size: 12px; color: #6c757d; border-radius: 8px; }
+          
+          /* Mobile Styles */
+          @media only screen and (max-width: 600px) {
+            .container { padding: 10px; }
+            .header { padding: 25px 15px; }
+            .content { padding: 20px 15px; }
+            .alert-section, .order-section { padding: 15px 12px; }
+            .mobile-hide { display: none !important; }
+            .action-button { display: block; padding: 12px 20px; text-align: center; margin: 10px 0; }
+          }
+          
+          /* Desktop-only styles */
+          @media only screen and (min-width: 601px) {
+            .mobile-only { display: none !important; }
+          }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <div class="header">
+            <h1 style="margin: 0; font-size: 24px;">🚨 ORDER CANCELLED</h1>
+            <p style="margin: 10px 0 0 0; opacity: 0.9;">Immediate attention required</p>
+          </div>
+          
+          <div class="content">
+            <div class="alert-section">
+              <h3 style="margin: 0 0 10px 0; color: #dc2626;">Order #${order.id || 'N/A'} Has Been Cancelled</h3>
+              <p style="margin: 0;"><strong>Cancelled by:</strong> ${cancelledBy || 'System'} | <strong>Reason:</strong> ${reason || 'Not specified'}</p>
+              ${currencyNote}
+            </div>
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin: 20px 0;">
+              <div class="order-section">
+                <h4 style="margin: 0 0 10px 0; color: #333;">Customer Information</h4>
+                <p style="margin: 5px 0;"><strong>Name:</strong> ${orderUser.name}</p>
+                <p style="margin: 5px 0;"><strong>Email:</strong> ${orderUser.email}</p>
+                <p style="margin: 5px 0;"><strong>Order Date:</strong> ${new Date(order.createdAt || new Date()).toLocaleString()}</p>
+                <p style="margin: 5px 0;"><strong>Cancelled:</strong> ${new Date().toLocaleString()}</p>
+              </div>
+              
+              <div class="order-section">
+                <h4 style="margin: 0 0 10px 0; color: #333;">Order Summary</h4>
+                <p style="margin: 5px 0;"><strong>Total Amount:</strong> ${currencySymbol}${localTotal}</p>
+                <p style="margin: 5px 0;"><strong>Currency:</strong> ${displayCurrency}</p>
+                <p style="margin: 5px 0;"><strong>Payment Status:</strong> ${order.paymentStatus || 'UNKNOWN'}</p>
+                <p style="margin: 5px 0;"><strong>Fulfillment Status:</strong> ${order.fulfillmentStatus || 'UNKNOWN'}</p>
+                <p style="margin: 5px 0;"><strong>Items:</strong> ${orderItems.length}</p>
+                ${amountBreakdown}
+              </div>
+            </div>
+
+            ${refundInfo}
+
+            ${orderItems.length > 0 ? `
+              <div class="order-section">
+                <h4 style="margin: 0 0 10px 0; color: #333;">Cancelled Items</h4>
+                
+                <!-- Mobile View -->
+                <div class="mobile-only">
+                  ${mobileItemsHtml}
+                </div>
+                
+                <!-- Desktop View -->
+                <div class="mobile-hide">
+                  <table class="responsive-table">
+                    <thead>
+                      <tr>
+                        <th class="mobile-hide">Image</th>
+                        <th>Product</th>
+                        <th class="mobile-hide" style="text-align: center;">Qty</th>
+                        <th class="mobile-hide" style="text-align: right;">Price (${displayCurrency})</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      ${desktopItemsHtml}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            ` : '<p>No items found in this order.</p>'}
+
+            ${shippingAddressHtml}
+
+            <div style="text-align: center; margin: 20px 0;">
+              <a href="${process.env.ADMIN_DASHBOARD_URL || ''}/orders/" class="action-button">View Order in Dashboard</a>
+            </div>
+
+            <div style="background: #e7f3ff; padding: 15px; border-radius: 8px;">
+              <h4 style="margin: 0 0 10px 0; color: #004085;">Required Actions</h4>
+              <ul style="margin: 0; padding-left: 20px;">
+                <li>Update inventory if necessary</li>
+                <li>Review cancellation reason for patterns</li>
+                <li>Contact customer if refund issues occur</li>
+              </ul>
+            </div>
+          </div>
+          
+          <div class="footer">
+            <p>This is an automated cancellation alert from Agumiya Collections Admin System.</p>
+            <p>© ${new Date().getFullYear()} Agumiya Collections</p>
+          </div>
+        </div>
+      </body>
+      </html>
+    `;
+  } catch (error) {
+    console.error('❌ Error generating admin cancellation email:', error);
+    // Return a simple fallback admin email template
+    return getFallbackAdminCancellationEmail(order, reason, cancelledBy);
+  }
+}
+
+// Fallback admin email template
+function getFallbackAdminCancellationEmail(order, reason, cancelledBy) {
   return `
     <!DOCTYPE html>
     <html>
     <head>
       <meta charset="utf-8">
-      <meta name="viewport" content="width=device-width, initial-scale=1.0">
-      <title>🚨 Order Cancellation - #${order.id}</title>
-      <style>
-        body { font-family: 'Arial', sans-serif; line-height: 1.6; color: #333; margin: 0; padding: 0; background: #f9f9f9; }
-        .container { max-width: 600px; margin: 0 auto; padding: 20px; }
-        .header { background: linear-gradient(135deg, #dc2626 0%, #b91c1c 100%); color: white; padding: 30px 20px; text-align: center; border-radius: 10px 10px 0 0; }
-        .content { background: white; padding: 30px; border-radius: 0 0 10px 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
-        .alert-section { background: #fef2f2; border: 1px solid #fecaca; padding: 20px; border-radius: 8px; margin: 15px 0; }
-        .order-section { background: #f8f9fa; padding: 20px; border-radius: 8px; margin: 15px 0; }
-        table { width: 100%; border-collapse: collapse; font-size: 14px; }
-        th { background: #e5e5e5; padding: 10px; text-align: left; font-weight: 600; }
-        .action-button { display: inline-block; padding: 10px 20px; background: #dc2626; color: white; text-decoration: none; border-radius: 5px; font-weight: 600; }
-        .footer { margin-top: 20px; padding: 15px; background: #f8f9fa; text-align: center; font-size: 12px; color: #6c757d; border-radius: 8px; }
-        
-        /* Mobile Styles */
-        @media only screen and (max-width: 600px) {
-          .container { padding: 10px; }
-          .header { padding: 25px 15px; }
-          .content { padding: 20px 15px; }
-          .alert-section, .order-section { padding: 15px 12px; }
-          .mobile-hide { display: none !important; }
-          .action-button { display: block; padding: 12px 20px; text-align: center; margin: 10px 0; }
-        }
-        
-        /* Desktop-only styles */
-        @media only screen and (min-width: 601px) {
-          .mobile-only { display: none !important; }
-        }
-      </style>
+      <title>Order Cancellation Alert</title>
     </head>
     <body>
-      <div class="container">
-        <div class="header">
-          <h1 style="margin: 0; font-size: 24px;">🚨 ORDER CANCELLED</h1>
-          <p style="margin: 10px 0 0 0; opacity: 0.9;">Immediate attention required</p>
-        </div>
-        
-        <div class="content">
-          <div class="alert-section">
-            <h3 style="margin: 0 0 10px 0; color: #dc2626;">Order #${order.id} Has Been Cancelled</h3>
-            <p style="margin: 0;"><strong>Cancelled by:</strong> ${cancelledBy} | <strong>Reason:</strong> ${reason}</p>
-          </div>
-
-          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin: 20px 0;">
-            <div class="order-section">
-              <h4 style="margin: 0 0 10px 0; color: #333;">Customer Information</h4>
-              <p style="margin: 5px 0;"><strong>Name:</strong> ${order.user.name}</p>
-              <p style="margin: 5px 0;"><strong>Email:</strong> ${order.user.email}</p>
-              <p style="margin: 5px 0;"><strong>Order Date:</strong> ${new Date(order.createdAt).toLocaleString()}</p>
-              <p style="margin: 5px 0;"><strong>Cancelled:</strong> ${new Date().toLocaleString()}</p>
-            </div>
-            
-            <div class="order-section">
-              <h4 style="margin: 0 0 10px 0; color: #333;">Order Summary</h4>
-              <p style="margin: 5px 0;"><strong>Total Amount:</strong> $${order.totalAmount.toFixed(2)}</p>
-              <p style="margin: 5px 0;"><strong>Payment Status:</strong> ${order.paymentStatus}</p>
-              <p style="margin: 5px 0;"><strong>Fulfillment Status:</strong> ${order.fulfillmentStatus}</p>
-              <p style="margin: 5px 0;"><strong>Items:</strong> ${order.items.length}</p>
-            </div>
-          </div>
-
-          ${refundInfo}
-
-          <div class="order-section">
-            <h4 style="margin: 0 0 10px 0; color: #333;">Cancelled Items</h4>
-            
-            <!-- Mobile View -->
-            <div class="mobile-only">
-              ${mobileItemsHtml}
-            </div>
-            
-            <!-- Desktop View -->
-            <div class="mobile-hide">
-              ${responsiveTableWrapper(`
-                <table class="responsive-table">
-                  <thead>
-                    <tr>
-                      <th class="mobile-hide">Image</th>
-                      <th>Product</th>
-                      <th class="mobile-hide" style="text-align: center;">Qty</th>
-                      <th class="mobile-hide" style="text-align: right;">Price</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    ${desktopItemsHtml}
-                  </tbody>
-                </table>
-              `)}
-            </div>
-          </div>
-
-          <div class="order-section">
-            <h4 style="margin: 0 0 10px 0; color: #333;">Shipping Address</h4>
-            <p style="margin: 5px 0;">
-              ${order.shippingAddress.firstName} ${order.shippingAddress.lastName}<br>
-              ${order.shippingAddress.address1}<br>
-              ${order.shippingAddress.address2 ? order.shippingAddress.address2 + '<br>' : ''}
-              ${order.shippingAddress.city}, ${order.shippingAddress.region} ${order.shippingAddress.zipCode}<br>
-              ${order.shippingAddress.country}<br>
-              <strong>Phone:</strong> ${order.shippingAddress.phone}
-            </p>
-          </div>
-
-          <div style="text-align: center; margin: 20px 0;">
-            <a href="${process.env.ADMIN_DASHBOARD_URL}/orders/" class="action-button">View Order in Dashboard</a>
-          </div>
-
-          <div style="background: #e7f3ff; padding: 15px; border-radius: 8px;">
-            <h4 style="margin: 0 0 10px 0; color: #004085;">Required Actions</h4>
-            <ul style="margin: 0; padding-left: 20px;">
-              ${order.refundAmount > 0 ? '<li>Process refund through payment gateway</li>' : ''}
-              <li>Update inventory if necessary</li>
-              <li>Review cancellation reason for patterns</li>
-              <li>Contact customer if refund issues occur</li>
-            </ul>
-          </div>
-        </div>
-        
-        <div class="footer">
-          <p>This is an automated cancellation alert from Agumiya Collections Admin System.</p>
-          <p>© ${new Date().getFullYear()} Agumiya Collections</p>
-        </div>
-      </div>
+      <h2>🚨 ORDER CANCELLATION ALERT</h2>
+      <p><strong>Order ID:</strong> ${order?.id || 'N/A'}</p>
+      <p><strong>Cancelled by:</strong> ${cancelledBy || 'System'}</p>
+      <p><strong>Reason:</strong> ${reason || 'Not specified'}</p>
+      <p><strong>Customer:</strong> ${order?.user?.name || 'N/A'} (${order?.user?.email || 'N/A'})</p>
+      <p><strong>Total Amount:</strong> ${order?.totalAmount || 0}</p>
+      <p><strong>Time:</strong> ${new Date().toLocaleString()}</p>
+      <p>Please check the admin dashboard for more details.</p>
     </body>
     </html>
   `;
 }
-
-/**
- * Refund Processed Email (Responsive)
+/** Refund Processed Email (Responsive)
  */
 export async function getRefundProcessedEmail(order, refundId, userCurrency = 'USD') {
   const currencySymbol = getCurrencySymbol(userCurrency);

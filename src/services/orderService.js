@@ -542,12 +542,10 @@ async forwardToPrintify(order) {
   }
 }
 
-// 🔥 IMPROVED EMAIL NOTIFICATION WITH BETTER VALIDATION
 async sendOrderNotifications(order) {
   console.log(`📧 Starting email notifications for order ${order.id}`);
   
   try {
-    // Enhanced validation
     if (!order.user?.email) {
       const errorMsg = `❌ Customer email not found for order ${order.id}`;
       console.error(errorMsg);
@@ -560,6 +558,7 @@ async sendOrderNotifications(order) {
     let customerEmailHtml, adminEmailHtml;
     
     try {
+      // Customer email
       customerEmailHtml = await Promise.race([
         getOrderConfirmationEmail(order),
         new Promise((_, reject) => 
@@ -572,7 +571,19 @@ async sendOrderNotifications(order) {
       customerEmailHtml = this.getFallbackOrderEmail(order);
     }
 
-    // Similar for admin email...
+    try {
+      // Admin email - ADD THIS PART
+      adminEmailHtml = await Promise.race([
+        getAdminNewOrderEmail(order), // Use your existing function
+        new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('Admin email template timeout')), 10000)
+        )
+      ]);
+      console.log('✅ Admin email template generated');
+    } catch (templateError) {
+      console.error('❌ Admin email template error:', templateError);
+      adminEmailHtml = this.getFallbackAdminEmail(order);
+    }
 
     // Send emails with better error handling
     const emailPromises = [];
@@ -614,8 +625,19 @@ async sendOrderNotifications(order) {
     
   } catch (error) {
     console.error(`❌ Email notification failed for order ${order.id}:`, error);
-    throw error; // Re-throw to be caught by Promise.allSettled
+    throw error;
   }
+}
+
+// Add fallback admin email function
+getFallbackAdminEmail(order) {
+  return `
+    <h2>New Order #${order.id}</h2>
+    <p><strong>Customer:</strong> ${order.user?.name || 'N/A'}</p>
+    <p><strong>Total:</strong> ${order.currency} ${order.totalAmount}</p>
+    <p><strong>Date:</strong> ${new Date(order.createdAt).toLocaleString()}</p>
+    <p>Please check the admin dashboard for details.</p>
+  `;
 }
 
   async debugOrderSync(orderId) {
@@ -860,87 +882,148 @@ async sendOrderNotifications(order) {
     }
   }
 
-// services/orderService.js
-async cancelOrder(orderId, reason = "Cancelled by customer", cancelledBy = 'user') {
+
+async cancelOrder(orderId, reason, cancelledBy) {
+  console.log('🔄 OrderService: Starting quick cancellation...', { orderId });
+  
   try {
+    // Step 1: Quick database fetch with correct field names
     const order = await prisma.order.findUnique({
       where: { id: orderId },
-      include: { 
-        user: true,
-        items: { include: { product: true } } 
+      select: {
+        id: true,
+        fulfillmentStatus: true,
+        paymentStatus: true,
+        razorpayPaymentId: true, // Changed from paymentId
+        totalAmount: true,
+        printifyOrderId: true,
+        userId: true,
+        orderNotes: true
       }
     });
 
-    if (!order) {
-      throw new Error("Order not found");
-    }
+    if (!order) throw new Error("Order not found");
 
-    // Enhanced cancellation validation
+    console.log('📦 OrderService: Found order', {
+      orderId: order.id,
+      status: order.fulfillmentStatus,
+      paymentStatus: order.paymentStatus,
+      razorpayPaymentId: order.razorpayPaymentId
+    });
+
+    // Step 2: Quick validation
     const cancellableStatuses = ['PLACED', 'PENDING', 'PROCESSING'];
     if (!cancellableStatuses.includes(order.fulfillmentStatus)) {
       throw new Error(`Cannot cancel order with status: ${order.fulfillmentStatus}`);
     }
 
-    // Determine refund eligibility
-    const isEligibleForRefund = order.paymentStatus === 'SUCCEEDED';
-    const refundAmount = isEligibleForRefund ? order.totalAmount : 0;
-
-    // Cancel in Printify first
-    let printifyCancellation = { success: false, message: '' };
-    if (order.printifyOrderId) {
-      try {
-        await this.printifyService.cancelOrder(order.printifyOrderId);
-        printifyCancellation = { 
-          success: true, 
-          message: 'Successfully cancelled in Printify' 
-        };
-        logger.info(`✅ Cancelled Printify order: ${order.printifyOrderId}`);
-      } catch (printifyError) {
-        printifyCancellation = { 
-          success: false, 
-          message: `Printify cancellation failed: ${printifyError.message}` 
-        };
-        logger.warn(`⚠️ Could not cancel Printify order: ${printifyError.message}`);
-      }
-    }
-
-    // Update order in database with enhanced cancellation data
-    const updatedOrder = await prisma.order.update({
-      where: { id: orderId },
-      data: {
-        fulfillmentStatus: 'CANCELLED',
-        paymentStatus: isEligibleForRefund ? 'REFUND_PENDING' : 'FAILED',
-        orderNotes: `${reason} | Requested by: ${cancelledBy} | Printify: ${printifyCancellation.message}`,
-        cancelledAt: new Date(),
-        cancellationReason: reason,
-        cancelledBy: cancelledBy,
-        refundStatus: isEligibleForRefund ? 'PENDING' : 'NOT_REQUIRED',
-        refundAmount: refundAmount,
-        refundRequestedAt: isEligibleForRefund ? new Date() : null
-      },
-      include: {
-        user: true,
-        items: { include: { product: true } }
-      }
-    });
-
-    // Send cancellation notifications to both customer and admin
-    await this.sendCancellationNotifications(updatedOrder, reason, cancelledBy);
-
-    // Initiate refund process if eligible
-    if (isEligibleForRefund) {
-      this.processRefund(updatedOrder, reason).catch(err => {
-        logger.error(`❌ Refund processing failed for order ${orderId}:`, err);
+    // Step 3: Quick payment check (non-blocking)
+    let refundStatus = 'NOT_REQUIRED';
+    let refundAmount = 0;
+    
+    // Use razorpayPaymentId instead of paymentId
+    if (order.paymentStatus === 'SUCCEEDED' && order.razorpayPaymentId) {
+      refundStatus = 'PENDING';
+      refundAmount = order.totalAmount;
+      console.log('💰 OrderService: Refund required', {
+        paymentId: order.razorpayPaymentId,
+        amount: refundAmount
+      });
+    } else {
+      console.log('ℹ️ OrderService: No refund required', {
+        paymentStatus: order.paymentStatus,
+        hasPaymentId: !!order.razorpayPaymentId
       });
     }
 
-    logger.info(`✅ Order ${orderId} cancelled successfully`);
-    return updatedOrder;
+    // Step 4: Quick database update
+    const updateData = {
+      fulfillmentStatus: 'CANCELLED',
+      paymentStatus: order.paymentStatus === 'SUCCEEDED' ? 'REFUND_PENDING' : 'FAILED',
+      orderNotes: `${order.orderNotes || ''} | Cancelled: ${reason} | By: ${cancelledBy}`.substring(0, 500),
+      cancelledAt: new Date(),
+      cancellationReason: reason.substring(0, 255),
+      cancelledBy: cancelledBy,
+      refundStatus,
+      refundAmount,
+      refundRequestedAt: refundStatus === 'PENDING' ? new Date() : null
+    };
+
+    console.log('📝 OrderService: Quick database update...', { orderId, updateData });
+    
+    const cancelledOrder = await prisma.order.update({
+      where: { id: orderId },
+      data: updateData,
+      include: { 
+        user: { select: { id: true, email: true, name: true } },
+        items: { 
+          include: { 
+            product: { select: { id: true, name: true } } 
+          } 
+        } 
+      }
+    });
+
+    console.log('✅ OrderService: Quick cancellation completed', { 
+      orderId,
+      newStatus: cancelledOrder.fulfillmentStatus,
+      refundStatus: cancelledOrder.refundStatus
+    });
+
+    // Step 5: Start background processing (non-blocking)
+    this.processBackgroundTasks(cancelledOrder, reason).catch(error => {
+      console.error('❌ Background processing failed:', error.message);
+    });
+
+    return cancelledOrder;
+
   } catch (error) {
-    logger.error(`❌ Failed to cancel order ${orderId}:`, error);
+    console.error('❌ OrderService: Cancellation failed', { orderId, error: error.message });
     throw error;
   }
 }
+
+// Separate method for background tasks
+async processBackgroundTasks(cancelledOrder, reason) {
+  console.log('🔄 Starting background tasks for order:', cancelledOrder.id);
+  
+  try {
+    // 1. Printify cancellation (if needed)
+    if (cancelledOrder.printifyOrderId) {
+      try {
+        console.log('🖨️ Processing Printify cancellation...');
+        await this.printifyService.cancelOrder(cancelledOrder.printifyOrderId);
+        console.log('✅ Printify cancellation completed');
+      } catch (printifyError) {
+        console.warn('⚠️ Printify cancellation failed (non-critical):', printifyError.message);
+      }
+    }
+
+    // 2. Refund processing (if needed) - use razorpayPaymentId
+    if (cancelledOrder.refundStatus === 'PENDING' && cancelledOrder.razorpayPaymentId) {
+      console.log('💰 Processing refund...', {
+        paymentId: cancelledOrder.razorpayPaymentId,
+        amount: cancelledOrder.refundAmount
+      });
+      await this.processRefund(cancelledOrder, reason);
+    } else {
+      console.log('ℹ️ No refund processing needed', {
+        refundStatus: cancelledOrder.refundStatus,
+        hasPaymentId: !!cancelledOrder.razorpayPaymentId
+      });
+    }
+
+    // 3. Send notifications
+    console.log('📧 Sending cancellation notifications...');
+    await this.sendCancellationNotifications(cancelledOrder, reason, cancelledOrder.cancelledBy);
+
+    console.log('✅ All background tasks completed for order:', cancelledOrder.id);
+    
+  } catch (error) {
+    console.error('❌ Background tasks failed:', error.message);
+  }
+}
+
 
 async sendCancellationNotifications(order, reason, cancelledBy) {
   try {
@@ -955,7 +1038,7 @@ async sendCancellationNotifications(order, reason, cancelledBy) {
     // Send email to admin
     const adminEmailContent = getAdminCancellationEmail(order, reason, cancelledBy);
     await sendMail(
-      process.env.ADMIN_EMAIL || 'admin@agumiyacollections.com',
+      process.env.ADMIN_EMAIL || 'support@agumiyacollections.com',
       `🚨 Order Cancellation Alert - #${order.id}`,
       adminEmailContent
     );
@@ -969,97 +1052,117 @@ async sendCancellationNotifications(order, reason, cancelledBy) {
 
 
 async processRefund(order, reason = "Order cancellation") {
-  try {
-    
-    // Enhanced validation
-    if (!order.razorpayPaymentId) {
-      throw new Error(`No Razorpay payment ID found for order ${order.id}`);
+  const MAX_RETRIES = 3;
+  const RETRY_DELAY = 2000; // 2 seconds
+  
+  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      console.log(`🔄 Refund attempt ${attempt}/${MAX_RETRIES} for order ${order.id}`);
+      
+      // Enhanced validation
+      if (!order.razorpayPaymentId) {
+        throw new Error(`No Razorpay payment ID found for order ${order.id}`);
+      }
+
+      if (!order.refundAmount || order.refundAmount <= 0) {
+        throw new Error(`Invalid refund amount: ${order.refundAmount}`);
+      }
+
+      // Update refund status to processing
+      await prisma.order.update({
+        where: { id: order.id },
+        data: { 
+          refundStatus: 'PROCESSING',
+          orderNotes: `${order.orderNotes} | Refund attempt ${attempt} started`
+        }
+      });
+
+      // Process refund with Razorpay
+      const refund = await this.razorpayService.refundPayment(
+        order.razorpayPaymentId, 
+        order.refundAmount
+      );
+
+      // Create refund record
+      const refundRecord = await prisma.refund.create({
+        data: {
+          orderId: order.id,
+          refundId: refund.id,
+          amount: order.refundAmount,
+          status: 'COMPLETED',
+          reason: reason,
+          processedAt: new Date(),
+          notes: `Razorpay Refund ID: ${refund.id} | Status: ${refund.status} | Amount: ${refund.amount}`
+        }
+      });
+
+      // Update order with refund details
+      const updatedOrder = await prisma.order.update({
+        where: { id: order.id },
+        data: {
+          refundStatus: 'COMPLETED',
+          refundProcessedAt: new Date(),
+          paymentStatus: 'REFUNDED',
+          razorpayRefundId: refund.id,
+          orderNotes: `${order.orderNotes} | Refund processed successfully: ${refund.id}`
+        },
+        include: {
+          user: true,
+          items: { include: { product: true } }
+        }
+      });
+
+      logger.info(`✅ Refund processed for order ${order.id}: ${refund.id}`);
+      
+      // Send refund confirmation
+      await this.sendRefundNotification(updatedOrder, refund.id);
+      
+      return refundRecord;
+
+    } catch (error) {
+      console.error(`❌ Refund attempt ${attempt} failed:`, error);
+      
+      // Log payment failure
+      await prisma.paymentLog.create({
+        data: {
+          orderId: order.id,
+          userId: order.userId,
+          paymentId: `refund_failed_attempt_${attempt}_${Date.now()}`,
+          amount: order.refundAmount,
+          status: 'FAILED',
+          errorMessage: error.message,
+          gateway: 'RAZORPAY',
+          rawResponse: { 
+            error: error.toString(),
+            attempt: attempt,
+            timestamp: new Date().toISOString()
+          }
+        }
+      });
+
+      // If last attempt, mark as failed
+      if (attempt === MAX_RETRIES) {
+        await prisma.order.update({
+          where: { id: order.id },
+          data: { 
+            refundStatus: 'FAILED',
+            orderNotes: `${order.orderNotes} | Refund failed after ${MAX_RETRIES} attempts: ${error.message}`
+          }
+        });
+
+        logger.error(`❌ Refund processing failed for order ${order.id} after ${MAX_RETRIES} attempts:`, error);
+        
+        // Send failure notification
+        await this.sendRefundNotification(order, error.message);
+        throw error;
+      }
+
+      // Wait before retry
+      console.log(`⏳ Waiting ${RETRY_DELAY}ms before retry...`);
+      await new Promise(resolve => setTimeout(resolve, RETRY_DELAY));
     }
-
-    if (!order.refundAmount || order.refundAmount <= 0) {
-      throw new Error(`Invalid refund amount: ${order.refundAmount}`);
-    }
-
-    // Update refund status to processing
-    await prisma.order.update({
-      where: { id: order.id },
-      data: { refundStatus: 'PROCESSING' }
-    });
-
-    // Process refund with Razorpay
-    const refund = await this.razorpayService.refundPayment(
-      order.razorpayPaymentId, 
-      order.refundAmount
-    );
-
-
-    // Create refund record
-    const refundRecord = await prisma.refund.create({
-      data: {
-        orderId: order.id,
-        refundId: refund.id,
-        amount: order.refundAmount,
-        status: 'COMPLETED',
-        reason: reason,
-        processedAt: new Date(),
-        notes: `Razorpay Refund ID: ${refund.id} | Status: ${refund.status}`
-      }
-    });
-
-    // Update order with refund details
-    const updatedOrder = await prisma.order.update({
-      where: { id: order.id },
-      data: {
-        refundStatus: 'COMPLETED',
-        refundProcessedAt: new Date(),
-        paymentStatus: 'REFUNDED',
-        razorpayRefundId: refund.id,
-        orderNotes: `${order.orderNotes} | Refund processed: ${refund.id}`
-      },
-      include: {
-        user: true,
-        items: { include: { product: true } }
-      }
-    });
-
-    logger.info(`✅ Refund processed for order ${order.id}: ${refund.id}`);
-    
-    // Send refund confirmation
-    await this.sendRefundNotification(updatedOrder, refund.id);
-    
-    return refundRecord;
-  } catch (error) {
-    console.error('❌ Refund process failed:', error);
-    
-    // Enhanced error logging
-    await prisma.paymentLog.create({
-      data: {
-        orderId: order.id,
-        userId: order.userId,
-        paymentId: `refund_failed_${Date.now()}`,
-        amount: order.refundAmount,
-        status: 'FAILED',
-        errorMessage: error.message,
-        gateway: 'RAZORPAY',
-        rawResponse: { error: error.toString() }
-      }
-    });
-
-    // Update order with refund failure
-    await prisma.order.update({
-      where: { id: order.id },
-      data: { 
-        refundStatus: 'FAILED',
-        orderNotes: `${order.orderNotes} | Refund failed: ${error.message}`
-      }
-    });
-
-    logger.error(`❌ Refund processing failed for order ${order.id}:`, error);
-    throw error;
   }
 }
-
-
 
 
 async sendRefundNotification(order, refundId) {
@@ -1173,30 +1276,6 @@ async getCancelledOrders(filters = {}) {
     }
   }
 
-  // 🔹 NEW: Send cancellation notification
-  async sendCancellationNotification(order, reason) {
-    try {
-      const emailContent = `
-        <h2>Order Cancelled</h2>
-        <p>Your order #${order.id} has been cancelled.</p>
-        <p><strong>Reason:</strong> ${reason}</p>
-        <p><strong>Cancelled on:</strong> ${new Date().toLocaleDateString()}</p>
-        ${order.paymentStatus === 'REFUNDED' ? 
-          '<p>Your payment will be refunded within 5-7 business days.</p>' : 
-          ''}
-      `;
-
-      await sendMail(
-        order.user.email,
-        `Order #${order.id} Cancelled`,
-        emailContent
-      );
-
-      logger.info(`📧 Cancellation notification sent for order ${order.id}`);
-    } catch (error) {
-      logger.error(`❌ Failed to send cancellation notification: ${error.message}`);
-    }
-  }
 
   async getUserOrders(userId) {
     try {
