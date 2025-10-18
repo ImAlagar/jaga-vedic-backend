@@ -31,48 +31,67 @@ export const taxService = {
   },
 
   // Calculate tax
-  async calculateTax(calculationData) {
-    try {
-      const { items, shippingAddress, subtotal, shippingCost } = calculationData;
+async calculateTax(calculationData) {
+  try {
+    const { items, shippingAddress, subtotal, shippingCost } = calculationData;
 
-      // Validate required fields
-      if (!items || !Array.isArray(items) || items.length === 0) {
-        return {
-          success: false,
-          message: 'Items array is required and cannot be empty',
-          data: null
-        };
-      }
+    console.log('🔍 TAX SERVICE - Input data:', {
+      country: shippingAddress?.country,
+      region: shippingAddress?.region,
+      subtotal: subtotal,
+      shippingCost: shippingCost,
+      itemsCount: items.length,
+      items: items.map(item => ({
+        productId: item.productId,
+        price: item.price,
+        quantity: item.quantity
+      }))
+    });
 
-      if (!shippingAddress || !shippingAddress.country) {
-        return {
-          success: false,
-          message: 'Shipping address with country is required',
-          data: null
-        };
-      }
-
-      const taxCalculation = await taxModel.calculateOrderTax({
-        items,
-        shippingAddress,
-        subtotal: parseFloat(subtotal) || 0,
-        shippingCost: parseFloat(shippingCost) || 0
-      });
-
-      return {
-        success: true,
-        message: 'Tax calculated successfully',
-        data: taxCalculation
-      };
-    } catch (error) {
-      logger.error('Service: Error calculating tax:', error);
+    // Validate required fields
+    if (!items || !Array.isArray(items) || items.length === 0) {
       return {
         success: false,
-        message: error.message || 'Failed to calculate tax',
+        message: 'Items array is required and cannot be empty',
         data: null
       };
     }
-  },
+
+    if (!shippingAddress || !shippingAddress.country) {
+      return {
+        success: false,
+        message: 'Shipping address with country is required',
+        data: null
+      };
+    }
+
+    const taxCalculation = await taxModel.calculateOrderTax({
+      items,
+      shippingAddress,
+      subtotal: parseFloat(subtotal) || 0,
+      shippingCost: parseFloat(shippingCost) || 0
+    });
+
+    console.log('💰 TAX SERVICE - Calculation result:', {
+      taxAmount: taxCalculation.taxAmount,
+      taxRate: taxCalculation.taxRate,
+      breakdown: taxCalculation.breakdown
+    });
+
+    return {
+      success: true,
+      message: 'Tax calculated successfully',
+      data: taxCalculation
+    };
+  } catch (error) {
+    logger.error('Service: Error calculating tax:', error);
+    return {
+      success: false,
+      message: error.message || 'Failed to calculate tax',
+      data: null
+    };
+  }
+},
 
   // Update tax settings
   async updateTaxSettings(settingsData) {

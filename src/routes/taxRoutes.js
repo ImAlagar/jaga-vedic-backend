@@ -11,7 +11,7 @@ router.get('/country/:countryCode', taxController.getTaxRateForCountry);
 
 // ==================== USER ROUTES (Authenticated Users) ====================
 router.get('/settings', taxController.getTaxSettings);
-router.get('/validate', verifyUserToken, taxController.validateTaxConfiguration);
+router.get('/validate', verifyAdminToken, taxController.validateTaxConfiguration);
 
 // ==================== ADMIN ROUTES (Admin Users Only) ====================
 router.put('/settings', verifyAdminToken, taxController.updateTaxSettings);

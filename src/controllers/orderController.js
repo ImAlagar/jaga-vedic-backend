@@ -5,21 +5,39 @@ import { successResponse, errorResponse } from "../utils/responseHandler.js";
 import HttpStatus from "../constants/httpStatusCode.js";
 import { socketEvents } from "../config/socket.js";
 import prisma from "../config/prisma.js";
+import printifyShippingService from "../services/printifyShippingService.js";
+import { taxService } from "../services/taxService.js";
+import { couponService } from "../services/couponService.js";
 
 const orderService = new OrderService();
 
 export async function createOrder(req, res) {
   try {
+    console.log('🔍 CONTROLLER - Request user:', req.user);
+    console.log('🔍 CONTROLLER - Request body:', req.body);
+    
+    // Check authentication
+    if (!req.user || !req.user.id) {
+      return errorResponse(res, 'Authentication required', HttpStatus.UNAUTHORIZED);
+    }
+
     const userId = req.user.id;
     const orderData = new CreateOrderDto(req.body);
     
+    // Validate DTO
     const validationErrors = orderData.validate();
     if (validationErrors.length > 0) {
       return errorResponse(res, validationErrors.join(", "), HttpStatus.BAD_REQUEST);
     }
 
+    console.log('📦 CONTROLLER - Calling order service...');
+    
+    // ✅ FIXED: Call the service method with proper parameters
     const order = await orderService.createOrder(userId, orderData);
     
+    console.log('✅ CONTROLLER - Order created successfully:', order.id);
+
+    // Emit socket event
     socketEvents.emitNewOrder(OrderResponseDto.fromOrder(order));
 
     return successResponse(
@@ -29,6 +47,7 @@ export async function createOrder(req, res) {
       HttpStatus.CREATED
     );
   } catch (error) {
+    console.error('❌ CONTROLLER - Order creation error:', error);
     return errorResponse(res, error.message, HttpStatus.BAD_REQUEST);
   }
 }
@@ -546,3 +565,5 @@ export async function resetRefundStatus(req, res) {
     return errorResponse(res, error.message, HttpStatus.BAD_REQUEST);
   }
 }
+
+

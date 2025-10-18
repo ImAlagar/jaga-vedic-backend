@@ -16,71 +16,110 @@ export class PaymentService {
   }
 
   // 🔥 OPTIMIZED: Create Razorpay order with faster checks
-  async createRazorpayOrder(orderId, userId) {
-    try {
-      // Use faster query with only needed fields
-      const order = await prisma.order.findFirst({
-        where: { 
-          id: parseInt(orderId),
-          userId: userId 
-        },
-        select: {
-          id: true,
-          totalAmount: true,
-          paymentStatus: true,
-          user: { select: { email: true } }
-        }
-      });
-
-      if (!order) {
-        throw new Error("Order not found or access denied");
+async createRazorpayOrder(orderId, userId) {
+  try {
+    // Get order with ALL currency info and shipping address
+    const order = await prisma.order.findFirst({
+      where: { 
+        id: parseInt(orderId),
+        userId: userId 
+      },
+      include: {
+        user: { select: { email: true } },
+        shipping: true // Include shipping to get country
       }
+    });
 
-      if (order.paymentStatus === "SUCCEEDED") {
-        throw new Error("Payment already completed for this order");
-      }
-
-      // Create Razorpay order with timeout
-      const options = {
-        amount: Math.round(order.totalAmount * 100),
-        currency: "INR",
-        receipt: `order_${order.id}`,
-        notes: {
-          orderId: order.id.toString(),
-          userId: userId.toString()
-        }
-      };
-
-      const razorpayOrder = await Promise.race([
-        this.razorpay.orders.create(options),
-        new Promise((_, reject) => 
-          setTimeout(() => reject(new Error("Razorpay timeout")), 8000)
-        )
-      ]);
-
-      // Update order without waiting for completion
-      prisma.order.update({
-        where: { id: order.id },
-        data: { 
-          razorpayOrderId: razorpayOrder.id,
-          paymentStatus: "PENDING"
-        }
-      }).catch(error => logger.error('Update failed:', error));
-
-      logger.info(`✅ Razorpay order created: ${razorpayOrder.id}`);
-
-      return {
-        id: razorpayOrder.id,
-        amount: razorpayOrder.amount,
-        currency: razorpayOrder.currency,
-        key: process.env.RAZORPAY_KEY_ID
-      };
-    } catch (error) {
-      logger.error(`❌ Order creation failed: ${error.message}`);
-      throw error;
+    if (!order) {
+      throw new Error("Order not found or access denied");
     }
-  }
 
+    // Get user's country from shipping address
+    const userCountry = order.shippingAddress?.country || 'US';
+    console.log('💰 PAYMENT DEBUG:', {
+      orderId: order.id,
+      storedAmount: order.totalAmount,
+      storedCurrency: order.currency,
+      originalAmount: order.originalAmount,
+      userCountry: userCountry,
+      shippingCost: order.shipping?.[0]?.shippingCost || 0
+    });
+
+    // 🔥 FIX: DETERMINE CURRENCY BASED ON USER LOCATION
+    let razorpayAmount, razorpayCurrency, displayAmount, displayCurrency;
+
+    // Indian customers pay in INR
+    if (userCountry === 'IN') {
+      razorpayAmount = order.totalAmount; // Already in INR
+      razorpayCurrency = "INR";
+      displayAmount = order.totalAmount;
+      displayCurrency = "INR";
+      
+      console.log(`🇮🇳 INDIAN CUSTOMER: Paying ${razorpayAmount} ${razorpayCurrency}`);
+    } 
+    // International customers pay in USD (if Razorpay supports) or converted currency
+    else {
+      // Check if Razorpay supports USD for international payments
+      // Note: Razorpay primarily supports INR, but check their international payment options
+      const supportedInternationalCurrencies = ['USD', 'EUR', 'GBP']; // Add currencies Razorpay supports
+      
+      // For now, we'll convert to INR for all international payments
+      // but show the user USD amount
+      razorpayAmount = order.totalAmount; // Already converted to INR during order creation
+      razorpayCurrency = "INR"; // Razorpay's primary currency
+      displayAmount = order.originalAmount || (order.totalAmount / order.exchangeRate); // Show USD equivalent
+      displayCurrency = "USD";
+      
+      console.log(`🌍 INTERNATIONAL CUSTOMER: User sees ${displayAmount.toFixed(2)} ${displayCurrency}, pays ${razorpayAmount} ${razorpayCurrency}`);
+    }
+
+    const options = {
+      amount: Math.round(razorpayAmount * 100), // Convert to smallest currency unit
+      currency: razorpayCurrency,
+      receipt: `order_${order.id}`,
+      notes: {
+        orderId: order.id.toString(),
+        userId: userId.toString(),
+        displayAmount: displayAmount,
+        displayCurrency: displayCurrency,
+        chargedAmount: razorpayAmount,
+        chargedCurrency: razorpayCurrency,
+        userCountry: userCountry,
+        exchangeRate: order.exchangeRate
+      }
+    };
+
+    console.log('💰 FINAL PAYMENT SETUP:', {
+      userLocation: userCountry,
+      userSees: `${displayAmount.toFixed(2)} ${displayCurrency}`,
+      razorpayCharges: `${razorpayAmount} ${razorpayCurrency}`,
+      amountInSmallestUnit: options.amount
+    });
+
+    const razorpayOrder = await this.razorpay.orders.create(options);
+
+    await prisma.order.update({
+      where: { id: order.id },
+      data: { 
+        razorpayOrderId: razorpayOrder.id,
+        paymentStatus: "PENDING"
+      }
+    });
+
+    return {
+      id: razorpayOrder.id,
+      amount: razorpayOrder.amount,
+      currency: razorpayOrder.currency,
+      key: process.env.RAZORPAY_KEY_ID,
+      displayAmount: parseFloat(displayAmount.toFixed(2)), // What user should see
+      displayCurrency: displayCurrency, // What user should see
+      userCountry: userCountry // For frontend display
+    };
+  } catch (error) {
+    logger.error(`❌ Payment order creation failed: ${error.message}`);
+    throw error;
+  }
+}
   // 🔥 OPTIMIZED: Faster payment verification
   async verifyRazorpayPayment(paymentData, userId) {
     const { razorpay_order_id, razorpay_payment_id, razorpay_signature, orderId } = paymentData;

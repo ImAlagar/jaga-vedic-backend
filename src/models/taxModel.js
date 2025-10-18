@@ -102,104 +102,64 @@ export const taxModel = {
   },
 
   // Calculate tax for order
-  async calculateOrderTax(orderData) {
-    try {
-      const {
-        items,
-        shippingAddress,
-        subtotal,
-        shippingCost = 0
-      } = orderData;
+async calculateOrderTax(data) {
+  try {
+    console.log('🔍 TAX MODEL - Calculating tax for:', {
+      country: data.shippingAddress.country,
+      subtotal: data.subtotal,
+      shippingCost: data.shippingCost
+    });
 
-      const taxSettings = await this.getActiveTaxSettings();
-      
-      if (!taxSettings) {
-        return {
-          taxAmount: 0,
-          breakdown: [],
-          total: subtotal + shippingCost,
-          taxIncluded: false
-        };
+    // Country tax rate get pannu
+    const countryTax = await prisma.countryTaxRate.findFirst({
+      where: { 
+        countryCode: data.shippingAddress.country,
+        isActive: true 
       }
+    });
 
-      const countryCode = shippingAddress?.country || 'US';
-      const countryTaxRate = taxSettings.countryTaxRates.find(
-        rate => rate.countryCode === countryCode
-      );
+    console.log('🔍 TAX MODEL - Found tax rate:', countryTax);
 
-      if (!countryTaxRate || countryTaxRate.taxRate === 0) {
-        return {
-          taxAmount: 0,
-          breakdown: [],
-          total: subtotal + shippingCost,
-          taxIncluded: taxSettings.inclusionType === 'INCLUSIVE'
-        };
-      }
-
-      // Calculate taxable amount
-      let taxableAmount = subtotal;
-      
-      // Apply product-specific tax overrides
-      const itemBreakdown = [];
-      let totalTaxAmount = 0;
-
-      for (const item of items) {
-        const productOverride = taxSettings.productTaxOverrides.find(
-          override => override.productId === item.productId
-        );
-
-        if (productOverride?.isTaxExempt) {
-          continue; // Skip tax-exempt items
-        }
-
-        const itemTaxRate = productOverride?.taxRate ?? countryTaxRate.taxRate;
-        const itemTaxableAmount = item.price * item.quantity;
-        const itemTaxAmount = (itemTaxableAmount * itemTaxRate) / 100;
-
-        itemBreakdown.push({
-          productId: item.productId,
-          productName: item.name,
-          rate: itemTaxRate,
-          amount: itemTaxAmount,
-          taxableAmount: itemTaxableAmount
-        });
-
-        totalTaxAmount += itemTaxAmount;
-      }
-
-      // Add shipping tax if applicable
-      let shippingTaxAmount = 0;
-      if (countryTaxRate.appliesToShipping) {
-        shippingTaxAmount = (shippingCost * countryTaxRate.taxRate) / 100;
-        totalTaxAmount += shippingTaxAmount;
-      }
-
-      const breakdown = [
-        {
-          name: `${countryTaxRate.countryName} ${taxSettings.taxType}`,
-          rate: countryTaxRate.taxRate,
-          amount: totalTaxAmount,
-          appliesToShipping: countryTaxRate.appliesToShipping,
-          itemBreakdown,
-          shippingTaxAmount
-        }
-      ];
-
-      const finalTotal = taxSettings.inclusionType === 'INCLUSIVE' 
-        ? subtotal + shippingCost // Tax already included in prices
-        : subtotal + shippingCost + totalTaxAmount;
-
+    if (!countryTax) {
+      console.log('❌ TAX MODEL - No tax rate found for country:', data.shippingAddress.country);
       return {
-        taxAmount: totalTaxAmount,
-        breakdown,
-        total: finalTotal,
-        taxIncluded: taxSettings.inclusionType === 'INCLUSIVE'
+        taxAmount: 0,
+        taxRate: 0,
+        breakdown: []
       };
-    } catch (error) {
-      logger.error('Error calculating tax:', error);
-      throw new Error('Failed to calculate tax');
     }
-  },
+
+    // 🔥 CRITICAL FIX: Correct decimal conversion
+    const taxRate = countryTax.taxRate / 100; // 20 / 100 = 0.20 ✅
+    const taxableAmount = data.subtotal + (countryTax.appliesToShipping ? data.shippingCost : 0);
+    const taxAmount = taxableAmount * taxRate;
+
+    console.log('💰 TAX MODEL - CORRECTED CALCULATION:', {
+      databaseTaxRate: countryTax.taxRate,
+      decimalTaxRate: taxRate,
+      taxableAmount: taxableAmount,
+      calculatedTax: taxAmount,
+      expectedTax: `$${taxAmount} at ${countryTax.taxRate}%`
+    });
+
+    return {
+      taxAmount: taxAmount,
+      taxRate: taxRate, // Return as decimal (0.2 for 20%)
+      breakdown: [
+        {
+          name: `${countryTax.countryName} Tax`,
+          rate: taxRate,
+          amount: taxAmount,
+          appliesToShipping: countryTax.appliesToShipping,
+          taxableAmount: taxableAmount
+        }
+      ]
+    };
+  } catch (error) {
+    console.error('TAX MODEL - Error:', error);
+    throw error;
+  }
+},
 
   // Validate tax configuration
   async validateTaxConfiguration() {

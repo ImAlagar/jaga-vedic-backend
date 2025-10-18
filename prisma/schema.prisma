@@ -247,8 +247,16 @@ model Order {
   userId              Int
   totalAmount         Float
   subtotalAmount      Float
+
+    // 🔥 ADD THESE CURRENCY FIELDS
+  currency            String           @default("USD")
+  baseCurrency        String           @default("USD")
+  exchangeRate        Float            @default(1.0)
+  originalAmount      Float?          
   paymentStatus       PaymentStatus    @default(PENDING)
   fulfillmentStatus   FulfillmentStatus @default(PLACED)
+
+
   
   // Razorpay fields
   razorpayOrderId     String?          @unique

@@ -30,17 +30,20 @@ export async function validateCoupon(req, res) {
     return errorResponse(res, error.message, HttpStatus.INTERNAL_SERVER_ERROR);
   }
 }
+
 export async function getAvailableCoupons(req, res) {
   try {
     const { cartItems, subtotal } = req.body;
-    const userId = req.user.id; // Now properly extracted from token
+    
+    // FIX: Check if user exists, but don't require it for available coupons
+    const userId = req.user?.id || null; // Make userId optional
 
     if (!cartItems || subtotal === undefined) {
       return errorResponse(res, "cartItems and subtotal are required", HttpStatus.BAD_REQUEST);
     }
 
     const availableCoupons = await couponService.getAvailableCoupons(
-      userId,
+      userId, // Pass userId even if it's null
       cartItems,
       parseFloat(subtotal)
     );
@@ -52,6 +55,7 @@ export async function getAvailableCoupons(req, res) {
       HttpStatus.OK
     );
   } catch (error) {
+    console.error('❌ getAvailableCoupons error:', error);
     return errorResponse(res, error.message, HttpStatus.INTERNAL_SERVER_ERROR);
   }
 }
@@ -154,11 +158,19 @@ export async function getCoupon(req, res) {
   }
 }
 
+
 export async function updateCoupon(req, res) {
   try {
     const { id } = req.params;
     const updateData = req.body;
-    
+
+    console.log('🔄 Updating coupon:', { id, updateData });
+
+    // Validate required fields for update
+    if (!id) {
+      return errorResponse(res, "Coupon ID is required", HttpStatus.BAD_REQUEST);
+    }
+
     const coupon = await couponService.updateCoupon(id, updateData);
     
     return successResponse(
@@ -168,10 +180,22 @@ export async function updateCoupon(req, res) {
       HttpStatus.OK
     );
   } catch (error) {
+    console.error('❌ Update coupon error:', error);
+    
+    // Handle specific error types
+    if (error.message.includes('not found')) {
+      return errorResponse(res, "Coupon not found", HttpStatus.NOT_FOUND);
+    }
+    if (error.message.includes('already exists')) {
+      return errorResponse(res, error.message, HttpStatus.CONFLICT);
+    }
+    if (error.message.includes('validation') || error.message.includes('must be')) {
+      return errorResponse(res, error.message, HttpStatus.BAD_REQUEST);
+    }
+    
     return errorResponse(res, error.message, HttpStatus.BAD_REQUEST);
   }
 }
-
 export async function deleteCoupon(req, res) {
   try {
     const { id } = req.params;
@@ -252,3 +276,5 @@ export async function getPublicAvailableCoupons(req, res) {
     return errorResponse(res, error.message, HttpStatus.INTERNAL_SERVER_ERROR);
   }
 }
+
+

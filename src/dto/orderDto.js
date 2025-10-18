@@ -4,12 +4,14 @@ export class CreateOrderDto {
     items,
     shippingAddress,
     orderImage = null,
-    orderNotes = null
+    orderNotes = null,
+    couponCode = null  // ✅ Add couponCode
   }) {
     this.items = items;
     this.shippingAddress = shippingAddress;
     this.orderImage = orderImage;
     this.orderNotes = orderNotes;
+    this.couponCode = couponCode; // ✅ Include coupon code
   }
 
   validate() {
@@ -45,7 +47,6 @@ export class CreateOrderDto {
     return errors;
   }
 }
-
 // src/dto/orderDto.js
 export class OrderResponseDto {
   static fromOrder(order) {

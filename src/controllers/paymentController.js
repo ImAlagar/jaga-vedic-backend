@@ -40,27 +40,50 @@ export const createPaymentOrder = withTimeout(async (req, res) => {
 
   const paymentOrder = await paymentService.createRazorpayOrder(orderId, userId);
   return successResponse(res, paymentOrder, "Payment order created successfully");
-}, 15000); // 15 seconds timeout
+}, 15000);
 
+// In your paymentController.js - verifyPayment function
 export const verifyPayment = withTimeout(async (req, res) => {
   const { razorpay_payment_id, razorpay_order_id, razorpay_signature, orderId } = req.body;
   const userId = req.user.id;
 
+  console.log('🔍 BACKEND - Verification request received:', {
+    razorpay_payment_id: razorpay_payment_id ? 'present' : 'missing',
+    razorpay_order_id: razorpay_order_id ? 'present' : 'missing',
+    razorpay_signature: razorpay_signature ? 'present' : 'missing',
+    orderId: orderId ? 'present' : 'missing',
+    userId: userId,
+    body: req.body
+  });
+
   // Quick validation
   if (!razorpay_payment_id || !razorpay_order_id || !razorpay_signature || !orderId) {
+    console.error('❌ BACKEND - Missing verification data:', {
+      missing: {
+        razorpay_payment_id: !razorpay_payment_id,
+        razorpay_order_id: !razorpay_order_id,
+        razorpay_signature: !razorpay_signature,
+        orderId: !orderId
+      }
+    });
     return errorResponse(res, "Missing payment verification data", HttpStatus.BAD_REQUEST);
   }
 
-  const verification = await paymentService.verifyRazorpayPayment({
-    razorpay_payment_id,
-    razorpay_order_id,
-    razorpay_signature,
-    orderId
-  }, userId);
+  try {
+    const verification = await paymentService.verifyRazorpayPayment({
+      razorpay_payment_id,
+      razorpay_order_id,
+      razorpay_signature,
+      orderId
+    }, userId);
 
-  return successResponse(res, verification, "Payment verified successfully");
+    console.log('✅ BACKEND - Verification successful for order:', orderId);
+    return successResponse(res, verification, "Payment verified successfully");
+  } catch (error) {
+    console.error('❌ BACKEND - Verification service error:', error);
+    return errorResponse(res, error.message, HttpStatus.BAD_REQUEST);
+  }
 }, 15000);
-
 // Webhook doesn't need timeout as it's async
 export async function handlePaymentWebhook(req, res) {
   try {

@@ -364,24 +364,44 @@ export function getWelcomeEmail(name, verificationUrl = null) {
 /**
  * Order Confirmation Email
  */
-export async function getOrderConfirmationEmail(order, userCurrency = 'USD') {
+export async function getOrderConfirmationEmail(order) {
+  const userCurrency = order.currency || 'USD';
   const currencySymbol = getCurrencySymbol(userCurrency);
-  
+
+  const formatPrice = (amount) => {
+    const number = parseFloat(amount);
+    return number.toLocaleString('en-IN', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2
+    });
+  };
+
+    const convertPrice = (usdAmount) => {
+    if (userCurrency === 'USD') return usdAmount;
+    // Use the stored conversion rate or calculate
+    const exchangeRate = order.exchangeRate || 83; // Fallback rate
+    return usdAmount * exchangeRate;
+  };
+
   // Mobile-friendly items list
   const mobileItemsHtml = await Promise.all(order.items.map(async (item, index) => {
-    const localPrice = await convertCurrency(item.price, 'USD', userCurrency);
     const productDetails = formatProductDetails(item);
+    const convertedPrice = convertPrice(item.price);
+    const itemTotal = convertedPrice * item.quantity;
     
     return `
       <div class="mobile-order-item" style="border-bottom: 1px solid #eee; padding: 15px 0; ${index === order.items.length - 1 ? 'border-bottom: none;' : ''}">
         <div style="display: flex; gap: 12px;">
-          <img src="${item.product.images[0]}" alt="${item.product.name}" width="60" style="border-radius: 6px; border: 1px solid #f0f0f0; flex-shrink: 0;">
+          <img src="${item.product?.images?.[0] || ''}" alt="${item.product?.name || 'Product'}" width="60" style="border-radius: 6px; border: 1px solid #f0f0f0; flex-shrink: 0;">
           <div style="flex: 1;">
-            <strong style="color: #333; display: block; margin-bottom: 5px;">${item.product.name}</strong>
+            <strong style="color: #333; display: block; margin-bottom: 5px;">${item.product?.name || 'Product'}</strong>
             ${productDetails}
             <div style="margin-top: 8px; color: #666; font-size: 14px;">
               <span>Qty: ${item.quantity}</span> • 
-              <span>Price: ${currencySymbol}${localPrice}</span>
+              <span>Price: ${currencySymbol}${formatPrice(convertedPrice)}</span>
+            </div>
+            <div style="margin-top: 4px; color: #888; font-size: 12px;">
+              <em>Originally: $${formatPrice(item.price)} USD</em>
             </div>
           </div>
         </div>
@@ -389,31 +409,50 @@ export async function getOrderConfirmationEmail(order, userCurrency = 'USD') {
     `;
   }));
 
-  // Desktop table items
+  // Desktop table items - WITH CONVERTED PRICES
   const desktopItemsHtml = await Promise.all(order.items.map(async (item) => {
-    const localPrice = await convertCurrency(item.price, 'USD', userCurrency);
     const productDetails = formatProductDetails(item);
+    const convertedPrice = convertPrice(item.price);
+    const itemTotal = convertedPrice * item.quantity;
     
     return `
       <tr>
         <td style="padding: 15px; border-bottom: 1px solid #eee; text-align: center; width: 80px;" class="mobile-hide">
-          <img src="${item.product.images[0]}" alt="${item.product.name}" width="70" style="border-radius: 8px; border: 1px solid #f0f0f0;">
+          <img src="${item.product?.images?.[0] || ''}" alt="${item.product?.name || 'Product'}" width="70" style="border-radius: 8px; border: 1px solid #f0f0f0;">
         </td>
         <td style="padding: 15px; border-bottom: 1px solid #eee;">
-          <strong style="color: #333;">${item.product.name}</strong>
+          <strong style="color: #333;">${item.product?.name || 'Product'}</strong>
           ${productDetails}
+          <div style="margin-top: 4px; color: #888; font-size: 12px;">
+            <em>Originally: $${formatPrice(item.price)} USD</em>
+          </div>
         </td>
         <td style="padding: 15px; border-bottom: 1px solid #eee; text-align: center; width: 60px;" class="mobile-hide">${item.quantity}</td>
-        <td style="padding: 15px; border-bottom: 1px solid #eee; text-align: right; width: 100px;" class="mobile-hide">${currencySymbol}${localPrice}</td>
-        <td style="padding: 15px; border-bottom: 1px solid #eee; text-align: right; width: 100px;" class="mobile-hide">${currencySymbol}${(parseFloat(localPrice) * item.quantity).toFixed(2)}</td>
+        <td style="padding: 15px; border-bottom: 1px solid #eee; text-align: right; width: 100px;" class="mobile-hide">${currencySymbol}${formatPrice(convertedPrice)}</td>
+        <td style="padding: 15px; border-bottom: 1px solid #eee; text-align: right; width: 100px;" class="mobile-hide">${currencySymbol}${formatPrice(itemTotal)}</td>
       </tr>
     `;
   }));
+  // Use the ALREADY CONVERTED amounts from order
+  const localTotal = formatPrice(order.totalAmount); // This is already in INR: 865.69
+  const localSubtotal = formatPrice(convertPrice(order.subtotalAmount || 10.43));
+  const localShipping = order.shippingCost ? formatPrice(convertPrice(order.shippingCost)) : '0.00';
+  const localTax = order.taxAmount ? formatPrice(convertPrice(order.taxAmount)) : '0.00';
 
-  const localTotal = await convertCurrency(order.totalAmount, 'USD', userCurrency);
-  const localShipping = await convertCurrency(order.shippingCost || 0, 'USD', userCurrency);
-  const localTax = await convertCurrency(order.taxAmount || 0, 'USD', userCurrency);
-  const localSubtotal = await convertCurrency(order.subtotal || order.totalAmount - (order.shippingCost || 0) - (order.taxAmount || 0), 'USD', userCurrency);
+    // Add currency conversion note
+  const currencyNote = userCurrency !== 'USD' ? `
+    <div style="margin-top: 10px; padding: 10px; background: #f0f8ff; border-radius: 5px; border-left: 4px solid #667eea;">
+      <small>
+        <strong>💱 Currency Note:</strong> 
+        Prices converted from USD to ${userCurrency} at rate: 1 USD = ${order.exchangeRate || 83} ${userCurrency}
+      </small>
+    </div>
+  ` : '';
+
+  // Add missing helper functions
+  function responsiveTableWrapper(content) {
+    return `<div style="overflow-x: auto;">${content}</div>`;
+  }
 
   return `
     <!DOCTYPE html>
@@ -423,6 +462,7 @@ export async function getOrderConfirmationEmail(order, userCurrency = 'USD') {
       <meta name="viewport" content="width=device-width, initial-scale=1.0">
       <title>Order Confirmation #${order.id} - Agumiya Collections</title>
       <style>
+        /* Your existing CSS */
         body { font-family: 'Arial', sans-serif; line-height: 1.6; color: #333; margin: 0; padding: 0; background: #f9f9f9; }
         .container { max-width: 600px; margin: 0 auto; padding: 20px; }
         .header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 40px 20px; text-align: center; border-radius: 10px 10px 0 0; }
@@ -434,7 +474,6 @@ export async function getOrderConfirmationEmail(order, userCurrency = 'USD') {
         .total-row { background: #f8f9fa; font-weight: bold; }
         .footer { margin-top: 30px; padding: 20px; background: #f8f9fa; text-align: center; font-size: 12px; color: #6c757d; border-radius: 8px; }
         
-        /* Mobile Styles */
         @media only screen and (max-width: 600px) {
           .container { padding: 10px; }
           .header { padding: 30px 15px; }
@@ -445,7 +484,6 @@ export async function getOrderConfirmationEmail(order, userCurrency = 'USD') {
           .responsive-table { width: 100% !important; min-width: 300px; }
         }
         
-        /* Desktop-only styles */
         @media only screen and (min-width: 601px) {
           .mobile-only { display: none !important; }
         }
@@ -461,11 +499,18 @@ export async function getOrderConfirmationEmail(order, userCurrency = 'USD') {
         <div class="content">
           <div style="text-align: center; margin-bottom: 25px;">
             <span class="status-badge">ORDER #${order.id}</span>
-            <p style="margin: 10px 0; color: #666;"><strong>Order Date:</strong> ${new Date(order.createdAt).toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</p>
+            <p style="margin: 10px 0; color: #666;">
+              <strong>Order Date:</strong> ${new Date(order.createdAt).toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+            </p>
+            <p style="margin: 5px 0; color: #666;">
+              <strong>Currency:</strong> ${userCurrency} ${userCurrency !== 'USD' ? '(Converted from USD)' : ''}
+            </p>
           </div>
 
           <div class="order-section">
             <h3 style="color: #333; margin-top: 0; border-bottom: 2px solid #667eea; padding-bottom: 10px;">Order Summary</h3>
+            
+            ${currencyNote}
             
             <!-- Mobile View -->
             <div class="mobile-only">
@@ -499,8 +544,8 @@ export async function getOrderConfirmationEmail(order, userCurrency = 'USD') {
                       <th style="width: 80px; text-align: center;">Image</th>
                       <th>Product</th>
                       <th style="width: 60px; text-align: center;">Qty</th>
-                      <th style="width: 100px; text-align: right;">Price</th>
-                      <th style="width: 100px; text-align: right;">Total</th>
+                      <th style="width: 100px; text-align: right;">Price (${userCurrency})</th>
+                      <th style="width: 100px; text-align: right;">Total (${userCurrency})</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -529,6 +574,9 @@ export async function getOrderConfirmationEmail(order, userCurrency = 'USD') {
             </div>
           </div>
 
+
+          <!-- Rest of your email template remains the same -->
+          ${order.shippingAddress ? `
           <div class="order-section">
             <h3 style="color: #333; margin-top: 0; border-bottom: 2px solid #667eea; padding-bottom: 10px;">Shipping Address</h3>
             <p style="margin: 0;">
@@ -541,6 +589,7 @@ export async function getOrderConfirmationEmail(order, userCurrency = 'USD') {
               📧 ${order.shippingAddress.email}
             </p>
           </div>
+          ` : ''}
 
           <div class="order-section">
             <h3 style="color: #333; margin-top: 0; border-bottom: 2px solid #667eea; padding-bottom: 10px;">Order Status & Next Steps</h3>
@@ -561,7 +610,7 @@ export async function getOrderConfirmationEmail(order, userCurrency = 'USD') {
           </div>
 
           <div style="text-align: center; margin: 25px 0;">
-            <a href="${process.env.CLIENT_URL}/orders/${order.id}" style="display: inline-block; padding: 12px 24px; background: #667eea; color: white; text-decoration: none; border-radius: 6px; font-weight: 600;">View Order Details</a>
+            <a href="${process.env.CLIENT_URL || '#'}/orders/${order.id}" style="display: inline-block; padding: 12px 24px; background: #667eea; color: white; text-decoration: none; border-radius: 6px; font-weight: 600;">View Order Details</a>
           </div>
         </div>
         

@@ -7,6 +7,9 @@ import logger from "../utils/logger.js";
 import { ProductVariantService } from "./productVariantService.js";
 import { FulfillmentStatus, PaymentStatus } from "@prisma/client";
 import RazorpayService from "./razorpayService.js"; // ✅ Change this line
+import printifyShippingService from "./printifyShippingService.js";
+import { taxService } from "./taxService.js";
+import { couponService } from "./couponService.js";
 
 export class OrderService {
   constructor() {
@@ -25,160 +28,553 @@ export class OrderService {
     'refunded': 'REFUNDED'
   };
 
+
   async createOrder(userId, orderData) {
-    const { items, shippingAddress, orderImage, orderNotes } = orderData;
+    try {
+      console.log('🔍 SERVICE - Creating order for user:', userId);
 
-    const user = await prisma.user.findUnique({ where: { id: userId } });
-    if (!user) throw new Error(`User with ID ${userId} not found`);
+      const { items, shippingAddress, orderImage, orderNotes, couponCode } = orderData;
 
-    const productIds = items.map(item => item.productId);
-    const products = await prisma.product.findMany({
+      // Validate required fields
+      if (!items || !Array.isArray(items) || items.length === 0) {
+        throw new Error('Order items are required');
+      }
+
+      if (!shippingAddress) {
+        throw new Error('Shipping address is required');
+      }
+
+      // ✅ ADD ROUNDING FUNCTIONS
+      const roundToWholeNumber = (amount) => Math.round(amount);
+      const roundUSDToWhole = (amount) => Math.round(amount * 100) / 100;
+
+      // Validate shipping address fields
+      const requiredAddressFields = ['firstName', 'lastName', 'email', 'phone', 'address1', 'city', 'region', 'country', 'zipCode'];
+      const missingFields = requiredAddressFields.filter(field => !shippingAddress[field]);
+      
+      if (missingFields.length > 0) {
+        throw new Error(`Missing required shipping fields: ${missingFields.join(', ')}`);
+      }
+
+      const user = await prisma.user.findUnique({ where: { id: userId } });
+      if (!user) {
+        throw new Error(`User with ID ${userId} not found`);
+      }
+
+      const productIds = items.map(item => item.productId).filter(Boolean);
+      if (productIds.length === 0) {
+        throw new Error('No valid product IDs found in order items');
+      }
+
+      const products = await prisma.product.findMany({
         where: { id: { in: productIds } }
-    });
-    
-    const productMap = new Map(products.map(p => [p.id, p]));
+      });
+      
+      const productMap = new Map(products.map(p => [p.id, p]));
 
-    let totalAmount = 0;
-    let subtotalAmount = 0;
-    const orderItems = [];
-    
-    const validationPromises = items.map(item => 
+      let subtotalAmount = 0;
+      const orderItems = [];
+      
+      // Validate variants
+      const validationPromises = items.map(item => 
         this.variantService.validateVariant(item.productId, item.variantId)
-    );
-    
-    const variantResults = await Promise.all(validationPromises);
+      );
+      
+      const variantResults = await Promise.all(validationPromises);
 
-    for (let i = 0; i < items.length; i++) {
+      // Process items and calculate subtotal
+      for (let i = 0; i < items.length; i++) {
         const item = items[i];
         const variantInfo = variantResults[i];
         const product = productMap.get(item.productId);
 
-        if (!product) throw new Error(`Product ${item.productId} not found`);
-        if (!product.inStock) throw new Error(`Product ${product.name} out of stock`);
+        if (!product) {
+          throw new Error(`Product ${item.productId} not found`);
+        }
+
+        if (!product.inStock) {
+          throw new Error(`Product ${product.name} is out of stock`);
+        }
 
         const itemTotal = variantInfo.price * item.quantity;
-        totalAmount += itemTotal;
         subtotalAmount += itemTotal;
 
         orderItems.push({
+          productId: item.productId,
+          quantity: item.quantity,
+          price: roundUSDToWhole(variantInfo.price), // ✅ ROUNDED
+          printifyVariantId: item.variantId?.toString(),
+          printifyBlueprintId: variantInfo.blueprintId,
+          printifyPrintProviderId: variantInfo.printProviderId,
+          size: item.size,
+          color: item.color,
+        });
+      }
+
+      subtotalAmount = roundUSDToWhole(subtotalAmount); // ✅ ROUNDED
+
+      // ==================== SHIPPING CALCULATION ====================
+      let shippingCost = 0;
+      let shippingDetails = null;
+      try {
+        console.log('🚚 ORDER SERVICE - Calculating shipping...');
+
+        const shippingData = await printifyShippingService.calculateCartShipping(
+          items.map(item => ({
             productId: item.productId,
+            variantId: item.variantId,
             quantity: item.quantity,
-            price: variantInfo.price,
-            printifyVariantId: item.variantId.toString(),
-            printifyBlueprintId: variantInfo.blueprintId,
-            printifyPrintProviderId: variantInfo.printProviderId,
-            size: item.size,
-            color: item.color,
-        });
-    }
+            price: variantResults.find(v => v.variantId === item.variantId)?.price || item.price
+          })),
+          shippingAddress.country,
+          shippingAddress.region
+        );
+        
+        shippingCost = roundUSDToWhole(shippingData.totalShipping); // ✅ ROUNDED
+        shippingDetails = shippingData;
+        
+        console.log(`🚚 ORDER SERVICE - Shipping cost calculated: $${shippingCost}`);
 
-    const order = await prisma.order.create({
-        data: {
+        // 🔥 CRITICAL FIX: If shipping is too high, force fallback
+        if (shippingCost > 15 && shippingAddress.country === 'IN') {
+          console.warn('⚠️ ORDER SERVICE - Shipping cost too high for India, forcing fallback');
+          shippingCost = roundUSDToWhole(5.99); // ✅ ROUNDED
+          shippingDetails = {
+            totalShipping: 5.99,
+            isFree: false,
+            hasFallback: true,
+            originalShipping: 5.99
+          };
+        }
+
+      } catch (error) {
+        console.error('❌ ORDER SERVICE - Shipping calculation failed:', error);
+        shippingCost = roundUSDToWhole(5.99); // ✅ ROUNDED
+        shippingDetails = {
+          totalShipping: 5.99,
+          isFree: false,
+          hasFallback: true,
+          originalShipping: 5.99
+        };
+      }
+
+      // Calculate tax
+      let taxAmount = 0;
+      let taxRate = 0;
+      let taxBreakdown = null;
+      try {
+        console.log('🧾 Manual tax calculation for India');
+
+        const taxData = await taxService.calculateTax({
+          items: items.map((item, index) => {
+            const product = productMap.get(item.productId);
+            return {
+              productId: item.productId,
+              name: product?.name || `Product ${item.productId}`,
+              price: variantResults[index]?.price || item.price,
+              quantity: item.quantity
+            };
+          }),
+          shippingAddress: shippingAddress,
+          subtotal: subtotalAmount,
+          shippingCost: shippingCost
+        });
+        
+        if (taxData.success && taxData.data) {
+          taxAmount = roundUSDToWhole(taxData.data.taxAmount || 0); // ✅ ROUNDED
+          taxRate = taxData.data.taxRate || 0;
+          taxBreakdown = taxData.data.breakdown || null;
+          
+          console.log(`🧾 DYNAMIC TAX: $${taxAmount} at rate ${(taxRate * 100)}%`);
+        } else {
+          throw new Error('Tax service returned unsuccessful');
+        }
+      } catch (error) {
+        console.error('Dynamic tax calculation failed:', error);
+        // Fallback to database tax rates
+        try {
+          const countryTax = await this.getTaxRateFromDatabase(shippingAddress.country);
+          taxRate = countryTax.taxRate / 100;
+          const taxableAmount = subtotalAmount + (countryTax.appliesToShipping ? shippingCost : 0);
+          taxAmount = roundUSDToWhole(taxableAmount * taxRate); // ✅ ROUNDED
+          
+          console.log(`🧾 DATABASE TAX: $${taxAmount} at rate ${(taxRate * 100)}%`);
+        } catch (dbError) {
+          console.error('Database tax fallback failed:', dbError);
+          taxRate = await this.getStaticTaxRate(shippingAddress.country);
+          taxAmount = roundUSDToWhole((subtotalAmount + shippingCost) * taxRate); // ✅ ROUNDED
+          console.log(`🔄 STATIC FALLBACK: $${taxAmount} at rate ${(taxRate * 100)}%`);
+        }
+      }
+
+      // Validate coupon
+      let discountAmount = 0;
+      let finalCouponCode = null;
+      let finalCouponId = null;
+
+      if (couponCode && couponCode.trim() !== '') {
+        try {
+          const couponValidation = await couponService.validateCoupon(
+            couponCode.trim(),
             userId,
-            totalAmount,
-            subtotalAmount,
-            paymentStatus: "PENDING",
-            fulfillmentStatus: "PLACED",
-            shippingAddress,
-            orderImage,
-            orderNotes,
-            items: {
-                create: orderItems,
-            },
-        },
-        include: {
-            user: true,
-            items: { include: { product: true } },
-        },
-    });
+            items.map((item, index) => ({
+              productId: item.productId,
+              variantId: item.variantId,
+              quantity: item.quantity,
+              price: variantResults[index]?.price || item.price,
+              product: products.find(p => p.id === item.productId)
+            })),
+            subtotalAmount
+          );
 
-    logger.info(`✅ Order ${order.id} created in DB`);
+          if (couponValidation.isValid) {
+            discountAmount = roundUSDToWhole(couponValidation.coupon.discountAmount); // ✅ ROUNDED
+            finalCouponCode = couponValidation.coupon.code;
+            finalCouponId = couponValidation.coupon.id;
+          } else {
+            throw new Error(`Coupon validation failed: ${couponValidation.error}`);
+          }
+        } catch (error) {
+          console.error('Coupon processing failed:', error);
+        }
+      }
 
-    this.handleAsyncOperations(order).catch(err => {
-        logger.error(`Async operations failed for order ${order.id}:`, err);
-    });
+      // Calculate final amounts
+      const userCountry = shippingAddress?.country || 'US';
+      const displayCurrency = userCountry === 'IN' ? 'INR' : 'USD';
+      const exchangeRate = 88;
 
-    return order;
-  }
+      let finalAmountUSD = subtotalAmount + shippingCost + taxAmount - discountAmount;
+      finalAmountUSD = Math.max(0.01, finalAmountUSD);
 
+      // ✅ ROUND FINAL AMOUNTS TO WHOLE NUMBERS
+      const finalAmountINR = roundToWholeNumber(finalAmountUSD * exchangeRate);
+      finalAmountUSD = roundUSDToWhole(finalAmountUSD);
 
-  async handleAsyncOperations(order) {
-    try {
-        await Promise.allSettled([
-            this.forwardToPrintify(order),
-            this.sendOrderNotifications(order)
-        ]);
-    } catch (error) {
-        logger.error(`Async operations error for order ${order.id}:`, error);
-    }
-  }
+      console.log('💰 FINAL CALCULATIONS (ROUNDED):', {
+        subtotal: subtotalAmount,
+        shipping: shippingCost,
+        tax: taxAmount,
+        discount: discountAmount,
+        finalUSD: finalAmountUSD,
+        finalINR: finalAmountINR,
+        currency: displayCurrency
+      });
 
-
-  async forwardToPrintify(order) {
-    try {
-        const printifyItems = order.items.map((item) => ({
-            ...item,
-            printifyProductId: item.product.printifyProductId,
-            sku: item.product.sku,
-        }));
-
-        const printifyOrder = await this.printifyService.createOrder({
-            orderId: order.id,
-            items: printifyItems,
-            shippingAddress: order.shippingAddress,
-            orderImage: order.orderImage,
-        });
-
-        await prisma.order.update({
-            where: { id: order.id },
+      // Create order with transaction
+      let order;
+      try {
+        order = await prisma.$transaction(async (tx) => {
+          // Create main order - STORE ROUNDED VALUES
+          const newOrder = await tx.order.create({
             data: {
-                printifyOrderId: printifyOrder.id,
-                fulfillmentStatus: "PROCESSING",
+              userId,
+              totalAmount: finalAmountINR, // ✅ Already rounded
+              subtotalAmount: subtotalAmount,
+              currency: displayCurrency,
+              baseCurrency: 'USD',
+              exchangeRate: exchangeRate,
+              originalAmount: finalAmountUSD, // ✅ Already rounded
+              paymentStatus: "PENDING",
+              fulfillmentStatus: "PLACED",
+              shippingAddress: shippingAddress,
+              orderImage: orderImage || null,
+              orderNotes: orderNotes || null,
+              couponCode: finalCouponCode,
+              discountAmount: discountAmount,
+              items: {
+                create: orderItems,
+              },
             },
-        });
+            include: {
+              items: {
+                include: {
+                  product: true
+                }
+              }
+            }
+          });
 
-        logger.info(`✅ Order ${order.id} forwarded to Printify: ${printifyOrder.id}`);
-    } catch (err) {
-        logger.error(`⚠️ Printify forwarding failed for order ${order.id}: ${err.message}`);
+          // Create shipping record - STORE ROUNDED VALUES
+          await tx.orderShipping.create({
+            data: {
+              orderId: newOrder.id,
+              shippingCost: shippingCost, // ✅ Already rounded
+              status: "PENDING",
+              shippingMethod: shippingDetails?.methodId || null,
+              carrier: shippingDetails?.carrier || null,
+              estimatedDelivery: shippingDetails?.estimatedDelivery ? 
+                new Date(shippingDetails.estimatedDelivery) : null,
+            },
+          });
+
+          return newOrder;
+        });
+      } catch (transactionError) {
+        console.error('❌ Transaction failed:', transactionError);
+        throw new Error(`Order creation transaction failed: ${transactionError.message}`);
+      }
+
+      // Fetch complete order with relations
+      const completeOrder = await prisma.order.findUnique({
+        where: { id: order.id },
+        include: {
+          user: {
+            select: {
+              id: true,
+              email: true,
+              name: true
+            }
+          },
+          items: { 
+            include: { 
+              product: true 
+            } 
+          },
+          shipping: true
+        },
+      });
+
+      if (!completeOrder) {
+        throw new Error(`Failed to fetch created order ${order.id}`);
+      }
+
+      // Record coupon usage
+      if (finalCouponId && finalCouponCode) {
+        try {
+          await couponService.markCouponAsUsed({
+            couponId: finalCouponId,
+            userId: userId,
+            orderId: order.id,
+            discountAmount: discountAmount,
+            couponCode: finalCouponCode
+          });
+        } catch (couponError) {
+          console.error('Failed to record coupon usage:', couponError);
+        }
+      }
+
+      console.log('✅ SERVICE - Order created successfully:', {
+        orderId: completeOrder.id,
+        totalAmount: completeOrder.totalAmount,
+        currency: completeOrder.currency,
+        roundedAmounts: {
+          subtotal: subtotalAmount,
+          shipping: shippingCost,
+          tax: taxAmount,
+          discount: discountAmount,
+          finalUSD: finalAmountUSD,
+          finalINR: finalAmountINR
+        }
+      });
+
+      // Handle async operations
+      this.handleAsyncOperations(completeOrder).catch(err => {
+        console.error('Async operations failed:', err);
+      });
+
+      return completeOrder;
+
+    } catch (error) {
+      console.error('❌ SERVICE - Order creation error:', error);
+      throw error;
     }
   }
 
-async handleAsyncOperations(order) {
+  // 🔥 ADD THIS NEW METHOD TO YOUR OrderService CLASS
+  async calculateExpectedTotals(items, shippingAddress, subtotal, shippingCost, taxAmount, discountAmount = 0) {
+    const exchangeRate = 88;
+    
+    // Recalculate to ensure consistency
+    const totalUSD = subtotal + shippingCost + taxAmount - discountAmount;
+    const totalINR = totalUSD * exchangeRate;
+    
+    return {
+      subtotalUSD: subtotal,
+      shippingUSD: shippingCost,
+      taxUSD: taxAmount,
+      discountUSD: discountAmount,
+      totalUSD: parseFloat(totalUSD.toFixed(2)),
+      totalINR: parseFloat(totalINR.toFixed(2)),
+      exchangeRate: exchangeRate
+    };
+  }
+
+  // Add these methods to order service
+async getTaxRateFromDatabase(countryCode) {
   try {
-    await Promise.allSettled([
-      this.forwardToPrintify(order),
-      this.sendOrderNotifications(order)
-    ]);
+    // Correct country code if needed
+    const correctedCountry = countryCode === 'TN' ? 'IN' : countryCode;
+    
+    const countryTax = await prisma.countryTaxRate.findFirst({
+      where: { 
+        countryCode: correctedCountry,
+        isActive: true 
+      }
+    });
+
+    if (!countryTax) {
+      throw new Error(`No tax rate found for ${correctedCountry}`);
+    }
+
+    console.log('💰 DATABASE TAX RATE:', {
+      country: correctedCountry,
+      taxRate: countryTax.taxRate,
+      appliesToShipping: countryTax.appliesToShipping
+    });
+
+    return countryTax;
   } catch (error) {
-    logger.error(`Async operations error for order ${order.id}:`, error);
+    console.error('Database tax rate fetch failed:', error);
+    throw error;
   }
 }
 
-async sendOrderNotifications(order) {
+async getStaticTaxRate(countryCode) {
+  // Static fallback rates
+  const staticRates = {
+    'IN': 0.18,    // India GST
+    'US': 0.085,   // USA average
+    'GB': 0.20,    // UK VAT
+    'DE': 0.19,    // Germany VAT
+    'FR': 0.20,    // France VAT
+    'CA': 0.13,    // Canada HST
+    'AU': 0.10,    // Australia GST
+    'default': 0.10
+  };
+  
+  const correctedCountry = countryCode === 'TN' ? 'IN' : countryCode;
+  const rate = staticRates[correctedCountry] || staticRates.default;
+  
+  console.log('💰 STATIC TAX RATE:', {
+    country: correctedCountry,
+    rate: rate * 100 + '%'
+  });
+  
+  return rate;
+}
+
+async handleAsyncOperations(order) {
+  console.log(`🔄 Starting async operations for order ${order.id}`);
+  
   try {
-    // Validate order data before sending emails
-    if (!order.user?.email) {
-      throw new Error('Customer email not found in order data');
+    const results = await Promise.allSettled([
+      this.forwardToPrintify(order).catch(err => {
+        console.error(`❌ Printify forwarding failed for order ${order.id}:`, err);
+        return { status: 'rejected', reason: err };
+      }),
+      this.sendOrderNotifications(order).catch(err => {
+        console.error(`❌ Email sending failed for order ${order.id}:`, err);
+        return { status: 'rejected', reason: err };
+      })
+    ]);
+
+    console.log(`✅ Async operations completed for order ${order.id}:`, results);
+    
+    // Log detailed results
+    results.forEach((result, index) => {
+      const operation = index === 0 ? 'Printify' : 'Email';
+      if (result.status === 'fulfilled') {
+        console.log(`✅ ${operation} operation successful for order ${order.id}`);
+      } else {
+        console.error(`❌ ${operation} operation failed for order ${order.id}:`, result.reason);
+      }
+    });
+    
+  } catch (error) {
+    console.error(`💥 Async operations handler crashed for order ${order.id}:`, error);
+  }
+}
+
+async forwardToPrintify(order) {
+  console.log(`🔄 Starting Printify forwarding for order ${order.id}`);
+  
+  try {
+    // Validate order data
+    if (!order.items || order.items.length === 0) {
+      throw new Error('No items in order');
     }
 
-    // Generate email content
+    const printifyItems = order.items.map((item) => ({
+      ...item,
+      printifyProductId: item.product.printifyProductId,
+      sku: item.product.sku,
+    }));
+
+    console.log(`📦 Sending ${printifyItems.length} items to Printify for order ${order.id}`);
+
+    const printifyOrder = await this.printifyService.createOrder({
+      orderId: order.id,
+      items: printifyItems,
+      shippingAddress: order.shippingAddress,
+      orderImage: order.orderImage,
+    });
+
+    console.log(`✅ Printify order created: ${printifyOrder.id}`);
+
+    // Update order with Printify ID
+    await prisma.order.update({
+      where: { id: order.id },
+      data: {
+        printifyOrderId: printifyOrder.id,
+        fulfillmentStatus: "PROCESSING",
+      },
+    });
+
+    console.log(`✅ Order ${order.id} updated with Printify ID: ${printifyOrder.id}`);
+    logger.info(`✅ Order ${order.id} forwarded to Printify: ${printifyOrder.id}`);
+    
+    return printifyOrder;
+  } catch (err) {
+    console.error(`❌ Printify forwarding failed for order ${order.id}:`, err);
+    
+    // Update order status to indicate Printify failure
+    await prisma.order.update({
+      where: { id: order.id },
+      data: {
+        fulfillmentStatus: "PRINTIFY_FAILED",
+      },
+    }).catch(updateErr => {
+      console.error(`❌ Failed to update order status after Printify failure:`, updateErr);
+    });
+    
+    throw err; // Re-throw to be caught by Promise.allSettled
+  }
+}
+
+// 🔥 IMPROVED EMAIL NOTIFICATION WITH BETTER VALIDATION
+async sendOrderNotifications(order) {
+  console.log(`📧 Starting email notifications for order ${order.id}`);
+  
+  try {
+    // Enhanced validation
+    if (!order.user?.email) {
+      const errorMsg = `❌ Customer email not found for order ${order.id}`;
+      console.error(errorMsg);
+      throw new Error(errorMsg);
+    }
+
+    console.log(`✅ Customer email: ${order.user.email}`);
+
+    // Generate email content with timeout
     let customerEmailHtml, adminEmailHtml;
     
     try {
-      customerEmailHtml = await getOrderConfirmationEmail(order);
+      customerEmailHtml = await Promise.race([
+        getOrderConfirmationEmail(order),
+        new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('Email template timeout')), 10000)
+        )
+      ]);
+      console.log('✅ Customer email template generated');
     } catch (templateError) {
-      logger.error('Customer email template error:', templateError);
+      console.error('❌ Customer email template error:', templateError);
       customerEmailHtml = this.getFallbackOrderEmail(order);
     }
 
-    try {
-      adminEmailHtml = await getAdminNewOrderEmail(order);
-    } catch (templateError) {
-      logger.error('Admin email template error:', templateError);
-      adminEmailHtml = this.getFallbackAdminEmail(order);
-    }
+    // Similar for admin email...
 
-    // Send emails
+    // Send emails with better error handling
     const emailPromises = [];
     
     // Customer email
@@ -187,24 +583,38 @@ async sendOrderNotifications(order) {
         order.user.email,
         `Order Confirmation - #${order.id}`,
         customerEmailHtml
-      )
+      ).then(() => {
+        console.log(`✅ Customer email sent to: ${order.user.email}`);
+      }).catch(error => {
+        console.error(`❌ Customer email failed:`, error);
+        throw new Error(`Customer email failed: ${error.message}`);
+      })
     );
 
-    // Admin email (only if ADMIN_EMAIL is set)
+    // Admin email
     if (process.env.ADMIN_EMAIL) {
       emailPromises.push(
         sendMail(
           process.env.ADMIN_EMAIL,
           `New Order - #${order.id}`,
           adminEmailHtml
-        )
+        ).then(() => {
+          console.log('✅ Admin email sent successfully');
+        }).catch(error => {
+          console.error('❌ Admin email failed:', error);
+          // Don't throw for admin email failures
+        })
       );
     }
 
-    await Promise.allSettled(emailPromises);
+    const results = await Promise.allSettled(emailPromises);
+    console.log(`📧 Email results for order ${order.id}:`, results);
+    
+    return results;
     
   } catch (error) {
-    logger.error(`Email notification system error for order ${order.id}:`, error);
+    console.error(`❌ Email notification failed for order ${order.id}:`, error);
+    throw error; // Re-throw to be caught by Promise.allSettled
   }
 }
 

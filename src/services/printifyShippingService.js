@@ -482,27 +482,31 @@ class PrintifyShippingService {
     };
   }
 
-  getFallbackShipping(country) {
-    const fallbackRates = {
-      'US': 5.99,
-      'CA': 12.99,
-      'UK': 14.99,
-      'EU': 13.99,
-      'AU': 18.99,
-      'IN': 8.99,
-      'default': 15.99
-    };
+getFallbackShipping(country) {
+  const fallbackRates = {
+    'US': 9.99,
+    'CA': 12.99,
+    'UK': 14.99,
+    'EU': 13.99,
+    'AU': 18.99,
+    'IN': 5.99,  // ✅ CHANGED from 8.99 to 5.99 to match order service
+    'default': 9.99
+  };
 
-    return {
-      shippingCost: fallbackRates[country] || fallbackRates.default,
-      shippingMethod: 1,
-      estimatedDays: this.getEstimatedDays(country, 'standard'),
-      methodName: 'standard',
-      currency: 'USD',
-      isFallback: true,
-      isAvailable: true
-    };
-  }
+  const shippingCost = fallbackRates[country] || fallbackRates.default;
+
+  console.log('🔄 FALLBACK SHIPPING - Country:', country, 'Cost:', shippingCost);
+
+  return {
+    shippingCost: shippingCost,
+    shippingMethod: 1,
+    estimatedDays: this.getEstimatedDays(country, 'standard'),
+    methodName: 'standard',
+    currency: 'USD',
+    isFallback: true,
+    isAvailable: true
+  };
+}
 
   getEmergencyFallback(cartItems, country) {
     const subtotal = this.calculateSubtotal(cartItems);

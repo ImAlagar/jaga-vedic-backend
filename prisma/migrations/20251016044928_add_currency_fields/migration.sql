@@ -1,0 +1,5 @@
+-- AlterTable
+ALTER TABLE "public"."orders" ADD COLUMN     "baseCurrency" TEXT NOT NULL DEFAULT 'USD',
+ADD COLUMN     "currency" TEXT NOT NULL DEFAULT 'USD',
+ADD COLUMN     "exchangeRate" DOUBLE PRECISION NOT NULL DEFAULT 1.0,
+ADD COLUMN     "originalAmount" DOUBLE PRECISION;

@@ -15,6 +15,7 @@ import lookbookRoutes from "./lookbookRoutes.js";
 import shippingRoutes from './shippingRoutes.js';
 import reviewRoutes from './reviewRoutes.js'; // Add this line
 import taxRoutes from './taxRoutes.js'; // Add this line
+import orderCalculationRoutes  from './orderCalculationRoutes.js'
 
 const router = express.Router();
 
@@ -35,5 +36,6 @@ router.use("/coupons", couponRoutes);
 router.use('/lookbook', lookbookRoutes);
 router.use('/reviews', reviewRoutes); // Add this line
 router.use('/tax', taxRoutes);
+router.use('/order-calculation', orderCalculationRoutes);
 
 export default router;
