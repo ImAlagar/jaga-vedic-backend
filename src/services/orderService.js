@@ -29,6 +29,147 @@ export class OrderService {
   };
 
 
+  async createOrderFromPayment(userId, tempOrderData, razorpayPaymentId, razorpayOrderId) {
+  try {
+    const { 
+      items, 
+      shippingAddress, 
+      orderImage, 
+      orderNotes, 
+      couponCode,
+      subtotalAmount,
+      discountAmount,
+      finalAmountUSD,
+      finalAmountINR,
+      displayCurrency,
+      exchangeRate
+    } = tempOrderData;
+
+    logger.info(`🔄 Creating order from payment for user: ${userId}`);
+
+    let order;
+    try {
+      order = await prisma.$transaction(async (tx) => {
+        // Create main order - WITH PAYMENT SUCCESS
+        const newOrder = await tx.order.create({
+          data: {
+            userId,
+            totalAmount: finalAmountINR,
+            subtotalAmount: subtotalAmount,
+            currency: displayCurrency,
+            baseCurrency: 'USD',
+            exchangeRate: exchangeRate,
+            originalAmount: finalAmountUSD,
+            paymentStatus: "SUCCEEDED", // ✅ Payment already successful
+            fulfillmentStatus: "PLACED", 
+            shippingAddress: shippingAddress,
+            orderImage: orderImage || null,
+            orderNotes: orderNotes || null,
+            couponCode: couponCode,
+            discountAmount: discountAmount,
+            razorpayPaymentId: razorpayPaymentId,
+            razorpayOrderId: razorpayOrderId,
+            items: {
+              create: items.map((item) => ({
+                productId: item.productId,
+                quantity: item.quantity,
+                price: item.price,
+                printifyVariantId: item.printifyVariantId,
+                printifyBlueprintId: item.printifyBlueprintId,
+                printifyPrintProviderId: item.printifyPrintProviderId,
+                size: item.size,
+                color: item.color,
+              })),
+            },
+          },
+          include: {
+            items: {
+              include: {
+                product: true
+              }
+            }
+          }
+        });
+
+        // Create shipping record
+        await tx.orderShipping.create({
+          data: {
+            orderId: newOrder.id,
+            shippingCost: 0,
+            status: "PENDING",
+          },
+        });
+
+        return newOrder;
+      });
+    } catch (transactionError) {
+      console.error('Order creation transaction failed:', transactionError);
+      throw new Error(`Order creation failed: ${transactionError.message}`);
+    }
+
+    // Fetch complete order with relations
+    const completeOrder = await prisma.order.findUnique({
+      where: { id: order.id },
+      include: {
+        user: {
+          select: {
+            id: true,
+            email: true,
+            name: true
+          }
+        },
+        items: { 
+          include: { 
+            product: true 
+          } 
+        },
+        shipping: true
+      },
+    });
+
+    if (!completeOrder) {
+      throw new Error(`Failed to fetch created order ${order.id}`);
+    }
+
+    // Record coupon usage if applicable
+    if (couponCode) {
+      try {
+        const coupon = await prisma.coupon.findUnique({
+          where: { code: couponCode }
+        });
+        
+        if (coupon) {
+          await prisma.couponUsage.create({
+            data: {
+              couponId: coupon.id,
+              userId: userId,
+              orderId: order.id,
+              discountAmount: discountAmount
+            }
+          });
+        }
+      } catch (couponError) {
+        console.error('Failed to record coupon usage:', couponError);
+      }
+    }
+
+    // 🎯 NOW FORWARD TO PRINTIFY (since payment is successful)
+    logger.info(`🔄 Forwarding order ${order.id} to Printify`);
+    await this.forwardOrderToPrintify(order.id);
+
+    // Send confirmation emails
+    await this.sendOrderConfirmationOnly(completeOrder);
+    
+    logger.info(`✅ Order created from payment: ${order.id}`);
+
+    return completeOrder;
+
+  } catch (error) {
+    logger.error(`❌ Order creation from payment failed: ${error.message}`);
+    throw error;
+  }
+}
+
   async createOrder(userId, orderData) {
     try {
       const { items, shippingAddress, orderImage, orderNotes, couponCode } = orderData;
@@ -426,18 +567,6 @@ export class OrderService {
     }
   }
 
-  // // Update the getFallbackAdminEmail to include Printify ID
-  // getFallbackAdminEmail(order, printifyOrderId = null) {
-  //   return `
-  //     <h2>New Order #${order.id}</h2>
-  //     <p><strong>Customer:</strong> ${order.user?.name || 'N/A'}</p>
-  //     <p><strong>Total:</strong> ${order.currency} ${order.totalAmount}</p>
-  //     <p><strong>Payment Status:</strong> ${order.paymentStatus}</p>
-  //     ${printifyOrderId ? `<p><strong>Printify Order ID:</strong> ${printifyOrderId}</p>` : ''}
-  //     <p><strong>Date:</strong> ${new Date(order.createdAt).toLocaleString()}</p>
-  //     <p>Please check the admin dashboard for details.</p>
-  //   `;
-  // }
 
   getFallbackOrderEmail(order) {
     return `
@@ -930,85 +1059,85 @@ export class OrderService {
   }
 
 
-async cancelOrder(orderId, reason, cancelledBy) {
-  try {
-    // Step 1: Quick database fetch with correct field names
-    const order = await prisma.order.findUnique({
-      where: { id: orderId },
-      select: {
-        id: true,
-        fulfillmentStatus: true,
-        paymentStatus: true,
-        razorpayPaymentId: true,
-        totalAmount: true,
-        printifyOrderId: true,
-        userId: true,
-        orderNotes: true
-      }
-    });
-
-    if (!order) throw new Error("Order not found");
-
-    // Step 2: Quick validation
-    const cancellableStatuses = ['PLACED', 'PENDING', 'PROCESSING'];
-    if (!cancellableStatuses.includes(order.fulfillmentStatus)) {
-      throw new Error(`Cannot cancel order with status: ${order.fulfillmentStatus}`);
-    }
-
-    // Step 3: Quick payment check (non-blocking)
-    let refundStatus = 'NOT_REQUIRED';
-    let refundAmount = 0;
-    
-    // Use razorpayPaymentId instead of paymentId
-    if (order.paymentStatus === 'SUCCEEDED' && order.razorpayPaymentId) {
-      refundStatus = 'PENDING';
-      refundAmount = order.totalAmount;
-    } else {
-      // FIXED: Replace logger with console.log
-      console.log('ℹ️ OrderService: No refund required', {
-        paymentStatus: order.paymentStatus,
-        hasPaymentId: !!order.razorpayPaymentId
+  async cancelOrder(orderId, reason, cancelledBy) {
+    try {
+      // Step 1: Quick database fetch with correct field names
+      const order = await prisma.order.findUnique({
+        where: { id: orderId },
+        select: {
+          id: true,
+          fulfillmentStatus: true,
+          paymentStatus: true,
+          razorpayPaymentId: true,
+          totalAmount: true,
+          printifyOrderId: true,
+          userId: true,
+          orderNotes: true
+        }
       });
-    }
 
-    // Step 4: Quick database update
-    const updateData = {
-      fulfillmentStatus: 'CANCELLED',
-      paymentStatus: order.paymentStatus === 'SUCCEEDED' ? 'REFUND_PENDING' : 'FAILED',
-      orderNotes: `${order.orderNotes || ''} | Cancelled: ${reason} | By: ${cancelledBy}`.substring(0, 500),
-      cancelledAt: new Date(),
-      cancellationReason: reason.substring(0, 255),
-      cancelledBy: cancelledBy,
-      refundStatus,
-      refundAmount,
-      refundRequestedAt: refundStatus === 'PENDING' ? new Date() : null
-    };
+      if (!order) throw new Error("Order not found");
 
-    const cancelledOrder = await prisma.order.update({
-      where: { id: orderId },
-      data: updateData,
-      include: { 
-        user: { select: { id: true, email: true, name: true } },
-        items: { 
-          include: { 
-            product: { select: { id: true, name: true } } 
-          } 
-        } 
+      // Step 2: Quick validation
+      const cancellableStatuses = ['PLACED', 'PENDING', 'PROCESSING'];
+      if (!cancellableStatuses.includes(order.fulfillmentStatus)) {
+        throw new Error(`Cannot cancel order with status: ${order.fulfillmentStatus}`);
       }
-    });
 
-    // Step 5: Start background processing (non-blocking)
-    this.processBackgroundTasks(cancelledOrder, reason).catch(error => {
-      console.error('❌ Background processing failed:', error.message);
-    });
+      // Step 3: Quick payment check (non-blocking)
+      let refundStatus = 'NOT_REQUIRED';
+      let refundAmount = 0;
+      
+      // Use razorpayPaymentId instead of paymentId
+      if (order.paymentStatus === 'SUCCEEDED' && order.razorpayPaymentId) {
+        refundStatus = 'PENDING';
+        refundAmount = order.totalAmount;
+      } else {
+        // FIXED: Replace logger with console.log
+        console.log('ℹ️ OrderService: No refund required', {
+          paymentStatus: order.paymentStatus,
+          hasPaymentId: !!order.razorpayPaymentId
+        });
+      }
 
-    return cancelledOrder;
+      // Step 4: Quick database update
+      const updateData = {
+        fulfillmentStatus: 'CANCELLED',
+        paymentStatus: order.paymentStatus === 'SUCCEEDED' ? 'REFUND_PENDING' : 'FAILED',
+        orderNotes: `${order.orderNotes || ''} | Cancelled: ${reason} | By: ${cancelledBy}`.substring(0, 500),
+        cancelledAt: new Date(),
+        cancellationReason: reason.substring(0, 255),
+        cancelledBy: cancelledBy,
+        refundStatus,
+        refundAmount,
+        refundRequestedAt: refundStatus === 'PENDING' ? new Date() : null
+      };
 
-  } catch (error) {
-    console.error('❌ OrderService: Cancellation failed', { orderId, error: error.message });
-    throw error;
+      const cancelledOrder = await prisma.order.update({
+        where: { id: orderId },
+        data: updateData,
+        include: { 
+          user: { select: { id: true, email: true, name: true } },
+          items: { 
+            include: { 
+              product: { select: { id: true, name: true } } 
+            } 
+          } 
+        }
+      });
+
+      // Step 5: Start background processing (non-blocking)
+      this.processBackgroundTasks(cancelledOrder, reason).catch(error => {
+        console.error('❌ Background processing failed:', error.message);
+      });
+
+      return cancelledOrder;
+
+    } catch (error) {
+      console.error('❌ OrderService: Cancellation failed', { orderId, error: error.message });
+      throw error;
+    }
   }
-}
 
   // Separate method for background tasks
   async processBackgroundTasks(cancelledOrder, reason) {

@@ -1,12 +1,11 @@
-// src/services/paymentService.js
 import prisma from "../config/prisma.js";
 import Razorpay from "razorpay";
 import crypto from "crypto";
-import { sendMail } from "../utils/mailer.js";
-import { getPaymentSuccessEmail, getPaymentFailedEmail } from "../utils/emailTemplates.js";
 import logger from "../utils/logger.js";
-import { OrderService } from "./orderService.js"; // 🔥 ADD THIS IMPORT
-
+import { OrderService } from "./orderService.js";
+import { ProductVariantService } from "./productVariantService.js";
+import { couponService } from "./couponService.js";
+import { getPaymentSuccessEmail } from "../utils/emailTemplates.js";
 
 export class PaymentService {
   constructor() {
@@ -14,195 +13,270 @@ export class PaymentService {
       key_id: process.env.RAZORPAY_KEY_ID,
       key_secret: process.env.RAZORPAY_KEY_SECRET,
     });
-    this.orderService = new OrderService(); // 🔥 ADD THIS
-
+    this.orderService = new OrderService();
+    this.variantService = new ProductVariantService();
   }
 
-  async createRazorpayOrder(orderId, userId) {
+  // 🔥 UPDATED: Create Razorpay order WITHOUT saving to database
+  async createRazorpayOrder(orderData, userId) {
     try {
-      // Get order with currency info and shipping address
-      const order = await prisma.order.findFirst({
-        where: { 
-          id: parseInt(orderId),
-          userId: userId 
-        },
-        include: {
-          user: { select: { email: true } },
-          shipping: true
-        }
-      });
+      const { items, shippingAddress, orderImage, orderNotes, couponCode } = orderData;
 
-      if (!order) {
-        throw new Error("Order not found or access denied");
+      // Validate required fields
+      if (!items || !Array.isArray(items) || items.length === 0) {
+        throw new Error('Order items are required');
       }
 
-      // Get user's country from shipping address
-      const userCountry = order.shippingAddress?.country || 'US';
-
-      // Determine currency based on user location
-      let razorpayAmount, razorpayCurrency, displayAmount, displayCurrency;
-
-      if (userCountry === 'IN') {
-        // Indian customers pay in INR
-        razorpayAmount = order.totalAmount;
-        razorpayCurrency = "INR";
-        displayAmount = order.totalAmount;
-        displayCurrency = "INR";
-      } else {
-        // International customers - convert to INR for Razorpay
-        razorpayAmount = order.totalAmount;
-        razorpayCurrency = "INR";
-        displayAmount = order.originalAmount || (order.totalAmount / order.exchangeRate);
-        displayCurrency = "USD";
+      if (!shippingAddress) {
+        throw new Error('Shipping address is required');
       }
 
-      const options = {
-        amount: Math.round(razorpayAmount * 100), // Convert to paise
-        currency: razorpayCurrency,
-        receipt: `order_${order.id}`,
-        notes: {
-          orderId: order.id.toString(),
-          userId: userId.toString(),
-          displayAmount: displayAmount,
-          displayCurrency: displayCurrency,
-          chargedAmount: razorpayAmount,
-          chargedCurrency: razorpayCurrency,
-          userCountry: userCountry,
-          exchangeRate: order.exchangeRate
+      // Validate shipping address fields
+      const requiredAddressFields = ['firstName', 'email', 'phone', 'address1', 'city', 'region', 'country', 'zipCode'];
+      const missingFields = requiredAddressFields.filter(field => !shippingAddress[field]);
+      
+      if (missingFields.length > 0) {
+        throw new Error(`Missing required shipping fields: ${missingFields.join(', ')}`);
+      }
+
+      // Ensure lastName exists
+      if (!shippingAddress.lastName) {
+        shippingAddress.lastName = '';
+      }
+
+      // Validate user exists
+      const user = await prisma.user.findUnique({ where: { id: userId } });
+      if (!user) {
+        throw new Error(`User with ID ${userId} not found`);
+      }
+
+      let subtotalAmount = 0;
+      const validatedItems = [];
+      
+      // Validate variants and calculate total
+      const validationPromises = items.map(item => 
+        this.variantService.validateVariant(item.productId, item.variantId)
+      );
+      
+      const variantResults = await Promise.all(validationPromises);
+
+      // Process items and calculate subtotal
+      for (let i = 0; i < items.length; i++) {
+        const item = items[i];
+        const variantInfo = variantResults[i];
+
+        if (!variantInfo) {
+          throw new Error(`Invalid variant for product ${item.productId}`);
         }
+
+        const itemTotal = variantInfo.price * item.quantity;
+        subtotalAmount += itemTotal;
+
+        validatedItems.push({
+          productId: item.productId,
+          quantity: item.quantity,
+          price: variantInfo.price,
+          printifyVariantId: item.variantId?.toString(),
+          printifyBlueprintId: variantInfo.blueprintId,
+          printifyPrintProviderId: variantInfo.printProviderId,
+          size: item.size,
+          color: item.color,
+        });
+      }
+
+      subtotalAmount = Math.round(subtotalAmount * 100) / 100;
+
+      // ==================== COUPON VALIDATION ====================
+      let discountAmount = 0;
+      let finalCouponCode = null;
+
+      if (couponCode && couponCode.trim() !== '') {
+        try {
+          const products = await prisma.product.findMany({
+            where: { id: { in: items.map(item => item.productId) } }
+          });
+
+          const couponValidation = await couponService.validateCoupon(
+            couponCode.trim(),
+            userId,
+            items.map((item, index) => ({
+              productId: item.productId,
+              variantId: item.variantId,
+              quantity: item.quantity,
+              price: variantResults[index]?.price || item.price,
+              product: products.find(p => p.id === item.productId)
+            })),
+            subtotalAmount
+          );
+
+          if (couponValidation.isValid) {
+            discountAmount = Math.round(couponValidation.coupon.discountAmount * 100) / 100;
+            finalCouponCode = couponValidation.coupon.code;
+          }
+        } catch (error) {
+          console.error('Coupon processing failed:', error);
+        }
+      }
+
+      // ==================== FINAL AMOUNT CALCULATION ====================
+      const userCountry = shippingAddress?.country || 'US';
+      const displayCurrency = userCountry === 'IN' ? 'INR' : 'USD';
+      const exchangeRate = 88;
+
+      // FINAL TOTAL = SUBTOTAL - DISCOUNT ONLY
+      let finalAmountUSD = subtotalAmount - discountAmount;
+      finalAmountUSD = Math.max(0.01, finalAmountUSD);
+      finalAmountUSD = Math.round(finalAmountUSD * 100) / 100;
+
+      // Round final amounts
+      const finalAmountINR = Math.round(finalAmountUSD * exchangeRate);
+
+      // 🎯 Create temporary order data (not saved to DB yet)
+      const tempOrderData = {
+        userId,
+        items: validatedItems,
+        shippingAddress,
+        orderImage: orderImage || null,
+        orderNotes: orderNotes || null,
+        couponCode: finalCouponCode,
+        subtotalAmount,
+        discountAmount,
+        finalAmountUSD,
+        finalAmountINR,
+        displayCurrency,
+        exchangeRate,
+        userCountry
       };
 
-      const razorpayOrder = await this.razorpay.orders.create(options);
+      logger.info('Creating Razorpay order with temp data:', {
+        userId,
+        itemCount: validatedItems.length,
+        finalAmountINR,
+        finalAmountUSD
+      });
 
-      // Update order with Razorpay order ID
-      await prisma.order.update({
-        where: { id: order.id },
-        data: { 
-          razorpayOrderId: razorpayOrder.id,
-          paymentStatus: "PENDING"
+      // Create Razorpay order
+      const razorpayOrder = await this.razorpay.orders.create({
+        amount: Math.round(finalAmountINR * 100), // Convert to paise
+        currency: "INR",
+        receipt: `order_${Date.now()}`,
+        notes: {
+          tempOrderData: JSON.stringify(tempOrderData),
+          userId: userId.toString(),
+          timestamp: new Date().toISOString()
         }
       });
+
+      logger.info(`✅ Razorpay order created: ${razorpayOrder.id}`);
 
       return {
         id: razorpayOrder.id,
         amount: razorpayOrder.amount,
         currency: razorpayOrder.currency,
         key: process.env.RAZORPAY_KEY_ID,
-        displayAmount: parseFloat(displayAmount.toFixed(2)),
+        displayAmount: finalAmountUSD,
         displayCurrency: displayCurrency,
         userCountry: userCountry
       };
+
     } catch (error) {
-      console.error(`Payment order creation failed: ${error.message}`);
+      logger.error(`❌ Razorpay order creation failed: ${error.message}`);
       throw error;
     }
   }
 
+async verifyRazorpayPayment(paymentData, userId) {
+  const { razorpay_payment_id, razorpay_order_id, razorpay_signature } = paymentData;
 
-  async verifyRazorpayPayment(paymentData, userId) {
-    const { razorpay_order_id, razorpay_payment_id, razorpay_signature, orderId } = paymentData;
-
-    try {
-      // Verify signature FIRST (fast operation)
-      const expectedSignature = crypto
-        .createHmac("sha256", process.env.RAZORPAY_KEY_SECRET)
-        .update(razorpay_order_id + "|" + razorpay_payment_id)
-        .digest("hex");
-
-      if (expectedSignature !== razorpay_signature) {
-        await this.updateOrderPaymentStatus(parseInt(orderId), "FAILED", "Signature verification failed");
-        throw new Error("Payment verification failed");
-      }
-
-      // Get order with only necessary fields
-      const order = await prisma.order.findFirst({
-        where: { 
-          id: parseInt(orderId),
-          userId: userId,
-          razorpayOrderId: razorpay_order_id
-        },
-        select: {
-          id: true,
-          paymentStatus: true,
-          user: { select: { email: true } }
-        }
-      });
-
-      if (!order) {
-        throw new Error("Order not found or access denied");
-      }
-
-      if (order.paymentStatus === "SUCCEEDED") {
-        return { success: true, message: "Payment already verified" };
-      }
-
-      // Update order status
-      const updatedOrder = await prisma.order.update({
-        where: { id: parseInt(orderId) },
-        data: { 
-          paymentStatus: "SUCCEEDED",
-          razorpayPaymentId: razorpay_payment_id,
-          // Don't change fulfillmentStatus yet - wait for Printify
-        },
-        select: {
-          id: true,
-          totalAmount: true,
-          paymentStatus: true,
-          user: { select: { email: true } }
-        }
-      });
-
-      // 🔥 NEW: Forward to Printify after successful payment
-      this.orderService.forwardOrderToPrintify(parseInt(orderId))
-        .then(printifyResult => {
-          logger.info(`✅ Order ${orderId} successfully forwarded to Printify`);
-        })
-        .catch(printifyError => {
-          logger.error(`❌ Printify forwarding failed for order ${orderId}:`, printifyError);
-          // Order remains in PLACED status but payment is successful
-          // Admin can manually retry Printify forwarding
-        });
-
-      // Send payment success email
-      this.sendPaymentSuccessEmail(updatedOrder).catch(error => 
-        logger.error('Email sending failed:', error)
-      );
-
-      logger.info(`✅ Payment verified for order ${orderId}`);
-
-      return {
-        success: true,
-        order: updatedOrder,
-        paymentId: razorpay_payment_id
-      };
-
-    } catch (error) {
-      logger.error(`❌ Payment verification failed: ${error.message}`);
-      
-      // Update order status in background
-      this.updateOrderPaymentStatus(parseInt(orderId), "FAILED", error.message)
-        .catch(err => logger.error('Status update failed:', err));
-
-      throw error;
-    }
-  }
-  // 🔥 NEW: Separate method for order status update
-  async updateOrderPaymentStatus(orderId, status, errorMessage = null) {
-    const updateData = { paymentStatus: status };
-    if (errorMessage) {
-      updateData.paymentError = errorMessage;
-    }
-    
-    return await prisma.order.update({
-      where: { id: orderId },
-      data: updateData
-    });
-  }
-
-  // 🔥 NEW: Async email sending (non-blocking)
-async sendPaymentSuccessEmail(order) {
   try {
-    // 🔥 FIX: Correct Prisma query - shippingAddress is a scalar field, not a relation
+    logger.info(`🔄 Verifying payment: ${razorpay_payment_id} for order: ${razorpay_order_id} for user: ${userId}`);
+
+    // Verify signature FIRST
+    const expectedSignature = crypto
+      .createHmac("sha256", process.env.RAZORPAY_KEY_SECRET)
+      .update(razorpay_order_id + "|" + razorpay_payment_id)
+      .digest("hex");
+
+    if (expectedSignature !== razorpay_signature) {
+      throw new Error("Payment signature verification failed");
+    }
+
+    // Get Razorpay order to retrieve temp order data
+    const razorpayOrder = await this.razorpay.orders.fetch(razorpay_order_id);
+    
+    if (!razorpayOrder.notes || !razorpayOrder.notes.tempOrderData) {
+      throw new Error("Invalid order data in payment");
+    }
+
+    const tempOrderData = JSON.parse(razorpayOrder.notes.tempOrderData);
+
+    // 🔥 FIX: Better user validation
+    const tempUserId = parseInt(tempOrderData.userId);
+    const currentUserId = parseInt(userId);
+
+    logger.info(`🔍 User validation - Temp: ${tempUserId}, Current: ${currentUserId}`);
+
+    if (tempUserId !== currentUserId) {
+      logger.error(`❌ User mismatch - Temp: ${tempUserId}, Current: ${currentUserId}`);
+      throw new Error("Payment user mismatch - please contact support");
+    }
+
+    logger.info(`✅ Payment verified, creating order for user: ${userId}`);
+
+    // 🎯 NOW CREATE THE ACTUAL ORDER IN DATABASE
+    const order = await this.orderService.createOrderFromPayment(
+      userId, 
+      tempOrderData, 
+      razorpay_payment_id, 
+      razorpay_order_id
+    );
+
+    logger.info(`✅ Order created successfully: ${order.id}`);
+
+    return {
+      success: true,
+      order: order,
+      paymentId: razorpay_payment_id,
+      message: "Payment verified and order created successfully"
+    };
+
+  } catch (error) {
+    logger.error(`❌ Payment verification failed: ${error.message}`);
+    throw error;
+  }
+}
+
+  // Handle webhook events
+  async handleWebhookEvent(webhookData) {
+    try {
+      if (webhookData.event === 'payment.captured') {
+        const payment = webhookData.payload.payment.entity;
+        
+        // Get Razorpay order to retrieve temp order data
+        const razorpayOrder = await this.razorpay.orders.fetch(payment.order_id);
+        
+        if (razorpayOrder.notes && razorpayOrder.notes.tempOrderData) {
+          const tempOrderData = JSON.parse(razorpayOrder.notes.tempOrderData);
+          
+          // Create order from webhook
+          await this.orderService.createOrderFromPayment(
+            parseInt(tempOrderData.userId),
+            tempOrderData,
+            payment.id,
+            payment.order_id
+          );
+          
+          logger.info(`✅ Order created from webhook: ${payment.order_id}`);
+        }
+      }
+    } catch (error) {
+      logger.error(`❌ Webhook processing failed: ${error.message}`);
+    }
+  }
+
+  async sendPaymentSuccessEmail(order) {
+  try {
+    // Get complete order details for email
     const completeOrder = await prisma.order.findUnique({
       where: { id: order.id },
       include: {
@@ -222,7 +296,6 @@ async sendPaymentSuccessEmail(order) {
             name: true
           }
         }
-        // shippingAddress is already included as scalar fields in Order model
       }
     });
 
@@ -240,72 +313,10 @@ async sendPaymentSuccessEmail(order) {
     
     logger.info(`✅ Payment success email sent for order ${completeOrder.id}`);
   } catch (error) {
-    logger.error(`Email failed for order ${order?.id}:`, error);
+    logger.error(`❌ Payment success email failed for order ${order?.id}:`, error);
     // Don't throw error to prevent breaking payment flow
   }
 }
-
-  // 🔥 OPTIMIZED: Webhook handlers with faster operations
-  async handlePaymentCaptured(payment) {
-    try {
-      // Update directly without fetching first (faster)
-      const updatedOrder = await prisma.order.updateMany({
-        where: { 
-          razorpayOrderId: payment.order_id,
-          paymentStatus: { not: "SUCCEEDED" }
-        },
-        data: { 
-          paymentStatus: "SUCCEEDED",
-          razorpayPaymentId: payment.id,
-          // Don't change fulfillmentStatus yet - wait for Printify
-        }
-      });
-
-      if (updatedOrder.count > 0) {
-        logger.info(`✅ Payment captured via webhook for order ${payment.order_id}`);
-        
-        // 🔥 NEW: Find order ID and forward to Printify
-        const order = await prisma.order.findFirst({
-          where: { razorpayOrderId: payment.order_id },
-          select: { id: true }
-        });
-        
-        if (order) {
-          this.orderService.forwardOrderToPrintify(order.id)
-            .then(printifyResult => {
-              logger.info(`✅ Order ${order.id} forwarded to Printify via webhook`);
-            })
-            .catch(printifyError => {
-              logger.error(`❌ Printify forwarding failed via webhook:`, printifyError);
-            });
-        }
-
-        // Get order details for email (in background)
-        this.sendWebhookSuccessEmail(payment.order_id).catch(error => 
-          logger.error('Webhook email failed:', error)
-        );
-      }
-    } catch (error) {
-      logger.error(`❌ Payment captured webhook error: ${error.message}`);
-    }
-  }
-
-  async sendWebhookSuccessEmail(razorpayOrderId) {
-    const order = await prisma.order.findFirst({
-      where: { razorpayOrderId },
-      include: { user: { select: { email: true } } }
-    });
-    
-    if (order && order.user) {
-      await sendMail(
-        order.user.email,
-        `Payment Successful - Order #${order.id}`,
-        getPaymentSuccessEmail(order)
-      );
-    }
-  }
-
-  // 🔥 OPTIMIZED: Get payment status with minimal data
   async getPaymentStatus(orderId, userId) {
     const order = await prisma.order.findFirst({
       where: { 
@@ -330,7 +341,6 @@ async sendPaymentSuccessEmail(order) {
     return order;
   }
 
-  // 🔥 NEW: Health check for Razorpay
   async checkRazorpayHealth() {
     try {
       await Promise.race([
