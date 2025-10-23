@@ -27,17 +27,18 @@ export async function createOrder(req, res) {
       return errorResponse(res, validationErrors.join(", "), HttpStatus.BAD_REQUEST);
     }
 
-    
-    // ✅ FIXED: Call the service method with proper parameters
     const order = await orderService.createOrder(userId, orderData);
     
 
-    // Emit socket event
+    // Emit socket event for ORDER PLACED (not processing yet)
     socketEvents.emitNewOrder(OrderResponseDto.fromOrder(order));
 
     return successResponse(
       res, 
-      OrderResponseDto.fromOrder(order), 
+      {
+        ...OrderResponseDto.fromOrder(order),
+        message: "Order placed successfully. Please complete payment to proceed with production."
+      }, 
       "Order created successfully", 
       HttpStatus.CREATED
     );
@@ -46,6 +47,34 @@ export async function createOrder(req, res) {
     return errorResponse(res, error.message, HttpStatus.BAD_REQUEST);
   }
 }
+
+export async function manualForwardToPrintify(req, res) {
+  try {
+    const { orderId } = req.params;
+    const userRole = req.user.role;
+
+    if (userRole !== 'admin') {
+      return errorResponse(res, "Access denied", HttpStatus.FORBIDDEN);
+    }
+
+    if (!orderId || isNaN(orderId)) {
+      return errorResponse(res, "Valid order ID is required", HttpStatus.BAD_REQUEST);
+    }
+
+    const result = await orderService.forwardOrderToPrintify(parseInt(orderId));
+    
+    return successResponse(
+      res, 
+      result, 
+      result.alreadyForwarded ? 
+        'Order already forwarded to Printify' : 
+        'Order successfully forwarded to Printify'
+    );
+  } catch (error) {
+    return errorResponse(res, error.message, HttpStatus.BAD_REQUEST);
+  }
+}
+
 
 export async function getUserOrders(req, res) {
   try {
@@ -123,18 +152,34 @@ export async function updateOrderStatus(req, res) {
 export async function retryPrintifyForwarding(req, res) {
   try {
     const { orderId } = req.params;
+    const userRole = req.user.role;
     
     if (!orderId || isNaN(orderId)) {
       return errorResponse(res, "Valid order ID is required", HttpStatus.BAD_REQUEST);
     }
 
-    const printifyOrderId = await orderService.retryPrintifyForwarding(parseInt(orderId));
+    if (userRole !== 'admin') {
+      return errorResponse(res, "Access denied", HttpStatus.FORBIDDEN);
+    }
+
+    // Check if payment is successful first
+    const order = await orderService.getOrderById(parseInt(orderId));
+    if (order.paymentStatus !== 'SUCCEEDED') {
+      return errorResponse(
+        res, 
+        `Cannot forward order to Printify. Payment status is: ${order.paymentStatus}`, 
+        HttpStatus.BAD_REQUEST
+      );
+    }
+
+    const result = await orderService.forwardOrderToPrintify(parseInt(orderId));
     
     return successResponse(
       res, 
-      { printifyOrderId }, 
-      'Order successfully forwarded to Printify', 
-      HttpStatus.OK
+      result, 
+      result.alreadyForwarded ? 
+        'Order already forwarded to Printify' : 
+        'Order successfully forwarded to Printify'
     );
   } catch (error) {
     return errorResponse(res, error.message, HttpStatus.BAD_REQUEST);

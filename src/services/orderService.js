@@ -29,7 +29,7 @@ export class OrderService {
   };
 
 
-async createOrder(userId, orderData) {
+  async createOrder(userId, orderData) {
     try {
       const { items, shippingAddress, orderImage, orderNotes, couponCode } = orderData;
 
@@ -176,7 +176,7 @@ async createOrder(userId, orderData) {
       let order;
       try {
         order = await prisma.$transaction(async (tx) => {
-          // Create main order - REMOVED taxAmount and taxRate fields
+          // Create main order
           const newOrder = await tx.order.create({
             data: {
               userId,
@@ -186,15 +186,13 @@ async createOrder(userId, orderData) {
               baseCurrency: 'USD',
               exchangeRate: exchangeRate,
               originalAmount: finalAmountUSD,
-              paymentStatus: "PENDING",
-              fulfillmentStatus: "PLACED",
+              paymentStatus: "PENDING", // Payment not completed yet
+              fulfillmentStatus: "PLACED", // NOT "PROCESSING" yet
               shippingAddress: shippingAddress,
               orderImage: orderImage || null,
               orderNotes: orderNotes || null,
               couponCode: finalCouponCode,
               discountAmount: discountAmount,
-              // 🚫 REMOVED: taxAmount: taxAmount,
-              // 🚫 REMOVED: taxRate: taxRate,
               items: {
                 create: orderItems,
               },
@@ -208,17 +206,16 @@ async createOrder(userId, orderData) {
             }
           });
 
-          // Create shipping record - REMOVED taxBreakdown
+          // Create shipping record
           await tx.orderShipping.create({
             data: {
               orderId: newOrder.id,
-              shippingCost: shippingCost, // Will be 0
+              shippingCost: shippingCost,
               status: "PENDING",
               shippingMethod: shippingDetails?.methodId || null,
               carrier: shippingDetails?.carrier || null,
               estimatedDelivery: shippingDetails?.estimatedDelivery ? 
                 new Date(shippingDetails.estimatedDelivery) : null,
-              // 🚫 REMOVED: taxBreakdown: taxBreakdown,
             },
           });
 
@@ -268,9 +265,10 @@ async createOrder(userId, orderData) {
         }
       }
 
-      // Handle async operations (email notifications, etc.)
-      this.handleAsyncOperations(completeOrder).catch(err => {
-        console.error('Async operations failed:', err);
+      // 🚫 REMOVED: Auto-forward to Printify
+      // 🎯 ONLY send order confirmation email for now
+      this.sendOrderConfirmationOnly(completeOrder).catch(err => {
+        console.error('Order confirmation failed:', err);
       });
 
       return completeOrder;
@@ -280,6 +278,176 @@ async createOrder(userId, orderData) {
       throw error;
     }
   }
+
+    async forwardOrderToPrintify(orderId) {
+    try {
+      const order = await prisma.order.findUnique({
+        where: { id: orderId },
+        include: {
+          user: true,
+          items: { 
+            include: { 
+              product: true 
+            } 
+          }
+        }
+      });
+
+      if (!order) {
+        throw new Error(`Order ${orderId} not found`);
+      }
+
+      // 🎯 CRITICAL: Check if payment is successful
+      if (order.paymentStatus !== 'SUCCEEDED') {
+        throw new Error(`Cannot forward order ${orderId} to Printify - payment status is ${order.paymentStatus}`);
+      }
+
+      // Check if already forwarded
+      if (order.printifyOrderId) {
+        logger.info(`Order ${orderId} already forwarded to Printify: ${order.printifyOrderId}`);
+        return { alreadyForwarded: true, printifyOrderId: order.printifyOrderId };
+      }
+
+      logger.info(`🔄 Forwarding order ${orderId} to Printify after payment success`);
+
+      const printifyItems = order.items.map((item) => ({
+        ...item,
+        printifyProductId: item.product.printifyProductId,
+        sku: item.product.sku,
+      }));
+
+      const printifyOrder = await this.printifyService.createOrder({
+        orderId: order.id,
+        items: printifyItems,
+        shippingAddress: order.shippingAddress,
+        orderImage: order.orderImage,
+      });
+
+      // Update order with Printify ID and change fulfillment status
+      await prisma.order.update({
+        where: { id: order.id },
+        data: {
+          printifyOrderId: printifyOrder.id,
+          fulfillmentStatus: "PROCESSING", // Now processing since payment is done
+        },
+      });
+
+      logger.info(`✅ Order ${order.id} forwarded to Printify after payment: ${printifyOrder.id}`);
+      
+      // Send admin notification
+      await this.sendAdminNewOrderNotification(order, printifyOrder.id);
+      
+      return printifyOrder;
+    } catch (error) {
+      logger.error(`❌ Failed to forward order ${orderId} to Printify:`, error);
+      
+      // Update order status to indicate Printify failure
+      await prisma.order.update({
+        where: { id: orderId },
+        data: {
+          fulfillmentStatus: "PRINTIFY_FAILED",
+          orderNotes: `Printify forwarding failed: ${error.message}`
+        },
+      }).catch(updateErr => {
+        logger.error(`❌ Failed to update order status after Printify failure:`, updateErr);
+      });
+      
+      throw error;
+    }
+  }
+
+  // 🔥 NEW: Send only order confirmation (without Printify details)
+  async sendOrderConfirmationOnly(order) {
+    try {
+      if (!order.user?.email) {
+        throw new Error(`Customer email not found for order ${order.id}`);
+      }
+
+      // Generate order confirmation email (pending payment)
+      let customerEmailHtml;
+      
+      try {
+        customerEmailHtml = await Promise.race([
+          getOrderConfirmationEmail(order),
+          new Promise((_, reject) => 
+            setTimeout(() => reject(new Error('Email template timeout')), 10000)
+          )
+        ]);
+      } catch (templateError) {
+        console.error('❌ Customer email template error:', templateError);
+        customerEmailHtml = this.getFallbackOrderEmail(order);
+      }
+
+      // Send order confirmation email
+      await sendMail(
+        order.user.email,
+        `Order Received - #${order.id}`,
+        customerEmailHtml
+      );
+
+      logger.info(`✅ Order confirmation sent to: ${order.user.email}`);
+      
+    } catch (error) {
+      console.error(`❌ Order confirmation email failed for order ${order.id}:`, error);
+      throw error;
+    }
+  }
+
+  // 🔥 NEW: Send admin notification when order goes to Printify
+  async sendAdminNewOrderNotification(order, printifyOrderId) {
+    try {
+      if (!process.env.ADMIN_EMAIL) return;
+
+      let adminEmailHtml;
+      
+      try {
+        adminEmailHtml = await Promise.race([
+          getAdminNewOrderEmail(order, printifyOrderId),
+          new Promise((_, reject) => 
+            setTimeout(() => reject(new Error('Admin email template timeout')), 10000)
+          )
+        ]);
+      } catch (templateError) {
+        console.error('❌ Admin email template error:', templateError);
+        adminEmailHtml = this.getFallbackAdminEmail(order, printifyOrderId);
+      }
+
+      await sendMail(
+        process.env.ADMIN_EMAIL,
+        `New Order - #${order.id}`,
+        adminEmailHtml
+      );
+
+      logger.info(`✅ Admin notification sent for order ${order.id}`);
+      
+    } catch (error) {
+      console.error('❌ Admin notification failed:', error);
+      // Don't throw for admin email failures
+    }
+  }
+
+  // // Update the getFallbackAdminEmail to include Printify ID
+  // getFallbackAdminEmail(order, printifyOrderId = null) {
+  //   return `
+  //     <h2>New Order #${order.id}</h2>
+  //     <p><strong>Customer:</strong> ${order.user?.name || 'N/A'}</p>
+  //     <p><strong>Total:</strong> ${order.currency} ${order.totalAmount}</p>
+  //     <p><strong>Payment Status:</strong> ${order.paymentStatus}</p>
+  //     ${printifyOrderId ? `<p><strong>Printify Order ID:</strong> ${printifyOrderId}</p>` : ''}
+  //     <p><strong>Date:</strong> ${new Date(order.createdAt).toLocaleString()}</p>
+  //     <p>Please check the admin dashboard for details.</p>
+  //   `;
+  // }
+
+  getFallbackOrderEmail(order) {
+    return `
+      <h2>Order Confirmation - #${order.id}</h2>
+      <p>Thank you for your order! Your payment is being processed.</p>
+      <p><strong>Order Total:</strong> ${order.currency} ${order.totalAmount}</p>
+      <p>We will notify you once your payment is confirmed and your order goes into production.</p>
+    `;
+  }
+
 
   // 🔥 ADD THIS NEW METHOD TO YOUR OrderService CLASS
   async calculateExpectedTotals(items, shippingAddress, subtotal, shippingCost, taxAmount, discountAmount = 0) {
@@ -375,139 +543,140 @@ async createOrder(userId, orderData) {
     }
   }
 
-  async forwardToPrintify(order) {
+  // async forwardToPrintify(order) {
     
-    try {
-      // Validate order data
-      if (!order.items || order.items.length === 0) {
-        throw new Error('No items in order');
-      }
+  //   try {
+  //     // Validate order data
+  //     if (!order.items || order.items.length === 0) {
+  //       throw new Error('No items in order');
+  //     }
 
-      const printifyItems = order.items.map((item) => ({
-        ...item,
-        printifyProductId: item.product.printifyProductId,
-        sku: item.product.sku,
-      }));
-
-
-      const printifyOrder = await this.printifyService.createOrder({
-        orderId: order.id,
-        items: printifyItems,
-        shippingAddress: order.shippingAddress,
-        orderImage: order.orderImage,
-      });
+  //     const printifyItems = order.items.map((item) => ({
+  //       ...item,
+  //       printifyProductId: item.product.printifyProductId,
+  //       sku: item.product.sku,
+  //     }));
 
 
-      // Update order with Printify ID
-      await prisma.order.update({
-        where: { id: order.id },
-        data: {
-          printifyOrderId: printifyOrder.id,
-          fulfillmentStatus: "PROCESSING",
-        },
-      });
+  //     const printifyOrder = await this.printifyService.createOrder({
+  //       orderId: order.id,
+  //       items: printifyItems,
+  //       shippingAddress: order.shippingAddress,
+  //       orderImage: order.orderImage,
+  //     });
 
-      logger.info(`✅ Order ${order.id} forwarded to Printify: ${printifyOrder.id}`);
+
+  //     // Update order with Printify ID
+  //     await prisma.order.update({
+  //       where: { id: order.id },
+  //       data: {
+  //         printifyOrderId: printifyOrder.id,
+  //         fulfillmentStatus: "PROCESSING",
+  //       },
+  //     });
+
+  //     logger.info(`✅ Order ${order.id} forwarded to Printify: ${printifyOrder.id}`);
       
-      return printifyOrder;
-    } catch (err) {
-      console.error(`❌ Printify forwarding failed for order ${order.id}:`, err);
+  //     return printifyOrder;
+  //   } catch (err) {
+  //     console.error(`❌ Printify forwarding failed for order ${order.id}:`, err);
       
-      // Update order status to indicate Printify failure
-      await prisma.order.update({
-        where: { id: order.id },
-        data: {
-          fulfillmentStatus: "PRINTIFY_FAILED",
-        },
-      }).catch(updateErr => {
-        console.error(`❌ Failed to update order status after Printify failure:`, updateErr);
-      });
+  //     // Update order status to indicate Printify failure
+  //     await prisma.order.update({
+  //       where: { id: order.id },
+  //       data: {
+  //         fulfillmentStatus: "PRINTIFY_FAILED",
+  //       },
+  //     }).catch(updateErr => {
+  //       console.error(`❌ Failed to update order status after Printify failure:`, updateErr);
+  //     });
       
-      throw err; // Re-throw to be caught by Promise.allSettled
-    }
-  }
+  //     throw err; // Re-throw to be caught by Promise.allSettled
+  //   }
+  // }
 
-  async sendOrderNotifications(order) {
+  // async sendOrderNotifications(order) {
     
-    try {
-      if (!order.user?.email) {
-        const errorMsg = `❌ Customer email not found for order ${order.id}`;
-        console.error(errorMsg);
-        throw new Error(errorMsg);
-      }
+  //   try {
+  //     if (!order.user?.email) {
+  //       const errorMsg = `❌ Customer email not found for order ${order.id}`;
+  //       console.error(errorMsg);
+  //       throw new Error(errorMsg);
+  //     }
 
 
-      // Generate email content with timeout
-      let customerEmailHtml, adminEmailHtml;
+  //     // Generate email content with timeout
+  //     let customerEmailHtml, adminEmailHtml;
       
-      try {
-        // Customer email
-        customerEmailHtml = await Promise.race([
-          getOrderConfirmationEmail(order),
-          new Promise((_, reject) => 
-            setTimeout(() => reject(new Error('Email template timeout')), 10000)
-          )
-        ]);
-      } catch (templateError) {
-        console.error('❌ Customer email template error:', templateError);
-        customerEmailHtml = this.getFallbackOrderEmail(order);
-      }
+  //     try {
+  //       // Customer email
+  //       customerEmailHtml = await Promise.race([
+  //         getOrderConfirmationEmail(order),
+  //         new Promise((_, reject) => 
+  //           setTimeout(() => reject(new Error('Email template timeout')), 10000)
+  //         )
+  //       ]);
+  //     } catch (templateError) {
+  //       console.error('❌ Customer email template error:', templateError);
+  //       customerEmailHtml = this.getFallbackOrderEmail(order);
+  //     }
 
-      try {
-        // Admin email - ADD THIS PART
-        adminEmailHtml = await Promise.race([
-          getAdminNewOrderEmail(order), // Use your existing function
-          new Promise((_, reject) => 
-            setTimeout(() => reject(new Error('Admin email template timeout')), 10000)
-          )
-        ]);
-      } catch (templateError) {
-        console.error('❌ Admin email template error:', templateError);
-        adminEmailHtml = this.getFallbackAdminEmail(order);
-      }
+  //     try {
+  //       // Admin email - ADD THIS PART
+  //       adminEmailHtml = await Promise.race([
+  //         getAdminNewOrderEmail(order), // Use your existing function
+  //         new Promise((_, reject) => 
+  //           setTimeout(() => reject(new Error('Admin email template timeout')), 10000)
+  //         )
+  //       ]);
+  //     } catch (templateError) {
+  //       console.error('❌ Admin email template error:', templateError);
+  //       adminEmailHtml = this.getFallbackAdminEmail(order);
+  //     }
 
-      // Send emails with better error handling
-      const emailPromises = [];
+  //     // Send emails with better error handling
+  //     const emailPromises = [];
       
-      // Customer email
-      emailPromises.push(
-        sendMail(
-          order.user.email,
-          `Order Confirmation - #${order.id}`,
-          customerEmailHtml
-        ).then(() => {
-          logger(`✅ Customer email sent to: ${order.user.email}`);
-        }).catch(error => {
-          throw new Error(`Customer email failed: ${error.message}`);
-        })
-      );
+  //     // Customer email
+  //     emailPromises.push(
+  //       sendMail(
+  //         order.user.email,
+  //         `Order Confirmation - #${order.id}`,
+  //         customerEmailHtml
+  //       ).then(() => {
+  //         logger(`✅ Customer email sent to: ${order.user.email}`);
+  //       }).catch(error => {
+  //         throw new Error(`Customer email failed: ${error.message}`);
+  //       })
+  //     );
 
-      // Admin email
-      if (process.env.ADMIN_EMAIL) {
-        emailPromises.push(
-          sendMail(
-            process.env.ADMIN_EMAIL,
-            `New Order - #${order.id}`,
-            adminEmailHtml
-          ).then(() => {
-          }).catch(error => {
-            console.error('❌ Admin email failed:', error);
-            // Don't throw for admin email failures
-          })
-        );
-      }
+  //     // Admin email
+  //     if (process.env.ADMIN_EMAIL) {
+  //       emailPromises.push(
+  //         sendMail(
+  //           process.env.ADMIN_EMAIL,
+  //           `New Order - #${order.id}`,
+  //           adminEmailHtml
+  //         ).then(() => {
+  //         }).catch(error => {
+  //           console.error('❌ Admin email failed:', error);
+  //           // Don't throw for admin email failures
+  //         })
+  //       );
+  //     }
 
-      const results = await Promise.allSettled(emailPromises);
+  //     const results = await Promise.allSettled(emailPromises);
       
-      return results;
+  //     return results;
       
-    } catch (error) {
-      console.error(`❌ Email notification failed for order ${order.id}:`, error);
-      throw error;
-    }
-  }
+  //   } catch (error) {
+  //     console.error(`❌ Email notification failed for order ${order.id}:`, error);
+  //     throw error;
+  //   }
+  // }
 
   // Add fallback admin email function
+  
   getFallbackAdminEmail(order) {
     return `
       <h2>New Order #${order.id}</h2>
@@ -518,57 +687,57 @@ async createOrder(userId, orderData) {
     `;
   }
 
-  async debugOrderSync(orderId) {
-    try {
-      const order = await this.getOrderById(orderId);
+  // async debugOrderSync(orderId) {
+  //   try {
+  //     const order = await this.getOrderById(orderId);
       
-      if (!order) {
-        return { success: false, error: `Order ${orderId} not found in database` };
-      }
+  //     if (!order) {
+  //       return { success: false, error: `Order ${orderId} not found in database` };
+  //     }
 
-      const debugInfo = {
-        orderId: order.id,
-        database: {
-          printifyOrderId: order.printifyOrderId,
-          fulfillmentStatus: order.fulfillmentStatus,
-          paymentStatus: order.paymentStatus,
-          trackingNumber: order.trackingNumber,
-          createdAt: order.createdAt
-        }
-      };
+  //     const debugInfo = {
+  //       orderId: order.id,
+  //       database: {
+  //         printifyOrderId: order.printifyOrderId,
+  //         fulfillmentStatus: order.fulfillmentStatus,
+  //         paymentStatus: order.paymentStatus,
+  //         trackingNumber: order.trackingNumber,
+  //         createdAt: order.createdAt
+  //       }
+  //     };
 
-      const connectionTest = await this.printifyService.testConnection();
-      debugInfo.printifyConnection = connectionTest;
+  //     const connectionTest = await this.printifyService.testConnection();
+  //     debugInfo.printifyConnection = connectionTest;
 
-      if (order.printifyOrderId) {
-        try {
-          const printifyOrder = await this.printifyService.getOrder(order.printifyOrderId);
-          debugInfo.printifyOrder = {
-            exists: true,
-            status: printifyOrder.status,
-            external_id: printifyOrder.external_id,
-            shipments: printifyOrder.shipments,
-            created_at: printifyOrder.created_at
-          };
-        } catch (error) {
-          debugInfo.printifyOrder = {
-            exists: false,
-            error: error.message
-          };
-        }
-      } else {
-        debugInfo.printifyOrder = { exists: false, error: 'No Printify order ID in database' };
-      }
+  //     if (order.printifyOrderId) {
+  //       try {
+  //         const printifyOrder = await this.printifyService.getOrder(order.printifyOrderId);
+  //         debugInfo.printifyOrder = {
+  //           exists: true,
+  //           status: printifyOrder.status,
+  //           external_id: printifyOrder.external_id,
+  //           shipments: printifyOrder.shipments,
+  //           created_at: printifyOrder.created_at
+  //         };
+  //       } catch (error) {
+  //         debugInfo.printifyOrder = {
+  //           exists: false,
+  //           error: error.message
+  //         };
+  //       }
+  //     } else {
+  //       debugInfo.printifyOrder = { exists: false, error: 'No Printify order ID in database' };
+  //     }
 
-      const recentOrders = await this.printifyService.listAllOrders(10);
-      debugInfo.recentPrintifyOrders = recentOrders;
+  //     const recentOrders = await this.printifyService.listAllOrders(10);
+  //     debugInfo.recentPrintifyOrders = recentOrders;
 
-      return { success: true, data: debugInfo };
-    } catch (error) {
-      logger.error(`❌ Debug order sync failed for order ${orderId}:`, error);
-      return { success: false, error: error.message };
-    }
-  }
+  //     return { success: true, data: debugInfo };
+  //   } catch (error) {
+  //     logger.error(`❌ Debug order sync failed for order ${orderId}:`, error);
+  //     return { success: false, error: error.message };
+  //   }
+  // }
 
   async syncOrderStatusFromPrintify(orderId) {
     try {

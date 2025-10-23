@@ -33,6 +33,7 @@ enum FulfillmentStatus {
   DELIVERED
   CANCELLED
   FAILED
+  PRINTIFY_FAILED  
 }
 
 enum RefundStatus {
@@ -249,7 +250,7 @@ model Order {
   totalAmount         Float
   subtotalAmount      Float
 
-    // 🔥 ADD THESE CURRENCY FIELDS
+  // 🔥 ADD THESE CURRENCY FIELDS
   currency            String           @default("USD")
   baseCurrency        String           @default("USD")
   exchangeRate        Float            @default(1.0)
@@ -257,7 +258,9 @@ model Order {
   paymentStatus       PaymentStatus    @default(PENDING)
   fulfillmentStatus   FulfillmentStatus @default(PLACED)
 
-
+  // 🔥 ADD THESE PAYMENT FIELDS
+  paidAt              DateTime?        // Add payment timestamp
+  paymentError        String?          // Add payment error message
   
   // Razorpay fields
   razorpayOrderId     String?          @unique

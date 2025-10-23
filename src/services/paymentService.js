@@ -5,6 +5,8 @@ import crypto from "crypto";
 import { sendMail } from "../utils/mailer.js";
 import { getPaymentSuccessEmail, getPaymentFailedEmail } from "../utils/emailTemplates.js";
 import logger from "../utils/logger.js";
+import { OrderService } from "./orderService.js"; // 🔥 ADD THIS IMPORT
+
 
 export class PaymentService {
   constructor() {
@@ -12,6 +14,7 @@ export class PaymentService {
       key_id: process.env.RAZORPAY_KEY_ID,
       key_secret: process.env.RAZORPAY_KEY_SECRET,
     });
+    this.orderService = new OrderService(); // 🔥 ADD THIS
 
   }
 
@@ -96,8 +99,7 @@ export class PaymentService {
   }
 
 
-  // 🔥 OPTIMIZED: Faster payment verification
-async verifyRazorpayPayment(paymentData, userId) {
+  async verifyRazorpayPayment(paymentData, userId) {
     const { razorpay_order_id, razorpay_payment_id, razorpay_signature, orderId } = paymentData;
 
     try {
@@ -140,7 +142,7 @@ async verifyRazorpayPayment(paymentData, userId) {
         data: { 
           paymentStatus: "SUCCEEDED",
           razorpayPaymentId: razorpay_payment_id,
-          fulfillmentStatus: "PROCESSING"
+          // Don't change fulfillmentStatus yet - wait for Printify
         },
         select: {
           id: true,
@@ -150,7 +152,18 @@ async verifyRazorpayPayment(paymentData, userId) {
         }
       });
 
-      // Send email in background (don't wait)
+      // 🔥 NEW: Forward to Printify after successful payment
+      this.orderService.forwardOrderToPrintify(parseInt(orderId))
+        .then(printifyResult => {
+          logger.info(`✅ Order ${orderId} successfully forwarded to Printify`);
+        })
+        .catch(printifyError => {
+          logger.error(`❌ Printify forwarding failed for order ${orderId}:`, printifyError);
+          // Order remains in PLACED status but payment is successful
+          // Admin can manually retry Printify forwarding
+        });
+
+      // Send payment success email
       this.sendPaymentSuccessEmail(updatedOrder).catch(error => 
         logger.error('Email sending failed:', error)
       );
@@ -172,8 +185,7 @@ async verifyRazorpayPayment(paymentData, userId) {
 
       throw error;
     }
-}
-
+  }
   // 🔥 NEW: Separate method for order status update
   async updateOrderPaymentStatus(orderId, status, errorMessage = null) {
     const updateData = { paymentStatus: status };
@@ -245,13 +257,29 @@ async sendPaymentSuccessEmail(order) {
         data: { 
           paymentStatus: "SUCCEEDED",
           razorpayPaymentId: payment.id,
-          fulfillmentStatus: "PROCESSING"
+          // Don't change fulfillmentStatus yet - wait for Printify
         }
       });
 
       if (updatedOrder.count > 0) {
         logger.info(`✅ Payment captured via webhook for order ${payment.order_id}`);
         
+        // 🔥 NEW: Find order ID and forward to Printify
+        const order = await prisma.order.findFirst({
+          where: { razorpayOrderId: payment.order_id },
+          select: { id: true }
+        });
+        
+        if (order) {
+          this.orderService.forwardOrderToPrintify(order.id)
+            .then(printifyResult => {
+              logger.info(`✅ Order ${order.id} forwarded to Printify via webhook`);
+            })
+            .catch(printifyError => {
+              logger.error(`❌ Printify forwarding failed via webhook:`, printifyError);
+            });
+        }
+
         // Get order details for email (in background)
         this.sendWebhookSuccessEmail(payment.order_id).catch(error => 
           logger.error('Webhook email failed:', error)
