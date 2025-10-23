@@ -2,7 +2,7 @@
 import prisma from "../config/prisma.js";
 import { PrintifyOrderService } from "./printifyOrderService.js";
 import { sendMail } from "../utils/mailer.js";
-import { getOrderConfirmationEmail, getAdminNewOrderEmail, getOrderShippedEmail, getOrderCancelledEmail, getAdminCancellationEmail } from "../utils/emailTemplates.js";
+import { getOrderConfirmationEmail, getAdminNewOrderEmail, getOrderShippedEmail, getOrderCancelledEmail, getAdminCancellationEmail,getRefundProcessedEmail } from "../utils/emailTemplates.js";
 import logger from "../utils/logger.js";
 import { ProductVariantService } from "./productVariantService.js";
 import { FulfillmentStatus, PaymentStatus } from "@prisma/client";
@@ -29,9 +29,8 @@ export class OrderService {
   };
 
 
-  async createOrder(userId, orderData) {
+async createOrder(userId, orderData) {
     try {
-
       const { items, shippingAddress, orderImage, orderNotes, couponCode } = orderData;
 
       // Validate required fields
@@ -43,28 +42,36 @@ export class OrderService {
         throw new Error('Shipping address is required');
       }
 
-      // ✅ ADD ROUNDING FUNCTIONS
+      // Rounding functions
       const roundToWholeNumber = (amount) => Math.round(amount);
       const roundUSDToWhole = (amount) => Math.round(amount * 100) / 100;
 
       // Validate shipping address fields
-      const requiredAddressFields = ['firstName', 'lastName', 'email', 'phone', 'address1', 'city', 'region', 'country', 'zipCode'];
+      const requiredAddressFields = ['firstName', 'email', 'phone', 'address1', 'city', 'region', 'country', 'zipCode'];
       const missingFields = requiredAddressFields.filter(field => !shippingAddress[field]);
       
       if (missingFields.length > 0) {
         throw new Error(`Missing required shipping fields: ${missingFields.join(', ')}`);
       }
 
+      // Ensure lastName exists
+      if (!shippingAddress.lastName) {
+        shippingAddress.lastName = '';
+      }
+
+      // Validate user exists
       const user = await prisma.user.findUnique({ where: { id: userId } });
       if (!user) {
         throw new Error(`User with ID ${userId} not found`);
       }
 
+      // Get product IDs from items
       const productIds = items.map(item => item.productId).filter(Boolean);
       if (productIds.length === 0) {
         throw new Error('No valid product IDs found in order items');
       }
 
+      // Fetch products
       const products = await prisma.product.findMany({
         where: { id: { in: productIds } }
       });
@@ -101,7 +108,7 @@ export class OrderService {
         orderItems.push({
           productId: item.productId,
           quantity: item.quantity,
-          price: roundUSDToWhole(variantInfo.price), // ✅ ROUNDED
+          price: roundUSDToWhole(variantInfo.price),
           printifyVariantId: item.variantId?.toString(),
           printifyBlueprintId: variantInfo.blueprintId,
           printifyPrintProviderId: variantInfo.printProviderId,
@@ -110,97 +117,17 @@ export class OrderService {
         });
       }
 
-      subtotalAmount = roundUSDToWhole(subtotalAmount); // ✅ ROUNDED
+      subtotalAmount = roundUSDToWhole(subtotalAmount);
 
-      // ==================== SHIPPING CALCULATION ====================
+      // 🚫 REMOVED SHIPPING CALCULATION - ALWAYS 0
       let shippingCost = 0;
       let shippingDetails = null;
-      try {
 
-        const shippingData = await printifyShippingService.calculateCartShipping(
-          items.map(item => ({
-            productId: item.productId,
-            variantId: item.variantId,
-            quantity: item.quantity,
-            price: variantResults.find(v => v.variantId === item.variantId)?.price || item.price
-          })),
-          shippingAddress.country,
-          shippingAddress.region
-        );
-        
-        shippingCost = roundUSDToWhole(shippingData.totalShipping); // ✅ ROUNDED
-        shippingDetails = shippingData;
-        
-
-        // 🔥 CRITICAL FIX: If shipping is too high, force fallback
-        if (shippingCost > 15 && shippingAddress.country === 'IN') {
-          console.warn('⚠️ ORDER SERVICE - Shipping cost too high for India, forcing fallback');
-          shippingCost = roundUSDToWhole(5.99); // ✅ ROUNDED
-          shippingDetails = {
-            totalShipping: 5.99,
-            isFree: false,
-            hasFallback: true,
-            originalShipping: 5.99
-          };
-        }
-
-      } catch (error) {
-        console.error('❌ ORDER SERVICE - Shipping calculation failed:', error);
-        shippingCost = roundUSDToWhole(5.99); // ✅ ROUNDED
-        shippingDetails = {
-          totalShipping: 5.99,
-          isFree: false,
-          hasFallback: true,
-          originalShipping: 5.99
-        };
-      }
-
-      // Calculate tax
+      // 🚫 REMOVED TAX CALCULATION - ALWAYS 0
       let taxAmount = 0;
       let taxRate = 0;
-      let taxBreakdown = null;
-      try {
 
-        const taxData = await taxService.calculateTax({
-          items: items.map((item, index) => {
-            const product = productMap.get(item.productId);
-            return {
-              productId: item.productId,
-              name: product?.name || `Product ${item.productId}`,
-              price: variantResults[index]?.price || item.price,
-              quantity: item.quantity
-            };
-          }),
-          shippingAddress: shippingAddress,
-          subtotal: subtotalAmount,
-          shippingCost: shippingCost
-        });
-        
-        if (taxData.success && taxData.data) {
-          taxAmount = roundUSDToWhole(taxData.data.taxAmount || 0); // ✅ ROUNDED
-          taxRate = taxData.data.taxRate || 0;
-          taxBreakdown = taxData.data.breakdown || null;
-          
-        } else {
-          throw new Error('Tax service returned unsuccessful');
-        }
-      } catch (error) {
-        console.error('Dynamic tax calculation failed:', error);
-        // Fallback to database tax rates
-        try {
-          const countryTax = await this.getTaxRateFromDatabase(shippingAddress.country);
-          taxRate = countryTax.taxRate / 100;
-          const taxableAmount = subtotalAmount + (countryTax.appliesToShipping ? shippingCost : 0);
-          taxAmount = roundUSDToWhole(taxableAmount * taxRate); // ✅ ROUNDED
-          
-        } catch (dbError) {
-          console.error('Database tax fallback failed:', dbError);
-          taxRate = await this.getStaticTaxRate(shippingAddress.country);
-          taxAmount = roundUSDToWhole((subtotalAmount + shippingCost) * taxRate); // ✅ ROUNDED
-        }
-      }
-
-      // Validate coupon
+      // ==================== COUPON VALIDATION ====================
       let discountAmount = 0;
       let finalCouponCode = null;
       let finalCouponId = null;
@@ -221,7 +148,7 @@ export class OrderService {
           );
 
           if (couponValidation.isValid) {
-            discountAmount = roundUSDToWhole(couponValidation.coupon.discountAmount); // ✅ ROUNDED
+            discountAmount = roundUSDToWhole(couponValidation.coupon.discountAmount);
             finalCouponCode = couponValidation.coupon.code;
             finalCouponId = couponValidation.coupon.id;
           } else {
@@ -232,33 +159,33 @@ export class OrderService {
         }
       }
 
-      // Calculate final amounts
+      // ==================== FINAL AMOUNT CALCULATION ====================
       const userCountry = shippingAddress?.country || 'US';
       const displayCurrency = userCountry === 'IN' ? 'INR' : 'USD';
       const exchangeRate = 88;
 
-      let finalAmountUSD = subtotalAmount + shippingCost + taxAmount - discountAmount;
+      // 🎯 FINAL TOTAL = SUBTOTAL - DISCOUNT ONLY (NO SHIPPING, NO TAX)
+      let finalAmountUSD = subtotalAmount - discountAmount;
       finalAmountUSD = Math.max(0.01, finalAmountUSD);
 
-      // ✅ ROUND FINAL AMOUNTS TO WHOLE NUMBERS
+      // Round final amounts
       const finalAmountINR = roundToWholeNumber(finalAmountUSD * exchangeRate);
       finalAmountUSD = roundUSDToWhole(finalAmountUSD);
 
-
-      // Create order with transaction
+      // ==================== ORDER CREATION ====================
       let order;
       try {
         order = await prisma.$transaction(async (tx) => {
-          // Create main order - STORE ROUNDED VALUES
+          // Create main order - REMOVED taxAmount and taxRate fields
           const newOrder = await tx.order.create({
             data: {
               userId,
-              totalAmount: finalAmountINR, // ✅ Already rounded
+              totalAmount: finalAmountINR,
               subtotalAmount: subtotalAmount,
               currency: displayCurrency,
               baseCurrency: 'USD',
               exchangeRate: exchangeRate,
-              originalAmount: finalAmountUSD, // ✅ Already rounded
+              originalAmount: finalAmountUSD,
               paymentStatus: "PENDING",
               fulfillmentStatus: "PLACED",
               shippingAddress: shippingAddress,
@@ -266,6 +193,8 @@ export class OrderService {
               orderNotes: orderNotes || null,
               couponCode: finalCouponCode,
               discountAmount: discountAmount,
+              // 🚫 REMOVED: taxAmount: taxAmount,
+              // 🚫 REMOVED: taxRate: taxRate,
               items: {
                 create: orderItems,
               },
@@ -279,23 +208,24 @@ export class OrderService {
             }
           });
 
-          // Create shipping record - STORE ROUNDED VALUES
+          // Create shipping record - REMOVED taxBreakdown
           await tx.orderShipping.create({
             data: {
               orderId: newOrder.id,
-              shippingCost: shippingCost, // ✅ Already rounded
+              shippingCost: shippingCost, // Will be 0
               status: "PENDING",
               shippingMethod: shippingDetails?.methodId || null,
               carrier: shippingDetails?.carrier || null,
               estimatedDelivery: shippingDetails?.estimatedDelivery ? 
                 new Date(shippingDetails.estimatedDelivery) : null,
+              // 🚫 REMOVED: taxBreakdown: taxBreakdown,
             },
           });
 
           return newOrder;
         });
       } catch (transactionError) {
-        console.error('❌ Transaction failed:', transactionError);
+        console.error('Transaction failed:', transactionError);
         throw new Error(`Order creation transaction failed: ${transactionError.message}`);
       }
 
@@ -338,7 +268,7 @@ export class OrderService {
         }
       }
 
-      // Handle async operations
+      // Handle async operations (email notifications, etc.)
       this.handleAsyncOperations(completeOrder).catch(err => {
         console.error('Async operations failed:', err);
       });
@@ -346,7 +276,7 @@ export class OrderService {
       return completeOrder;
 
     } catch (error) {
-      console.error('❌ SERVICE - Order creation error:', error);
+      console.error('Order creation error:', error);
       throw error;
     }
   }
@@ -371,222 +301,222 @@ export class OrderService {
   }
 
   // Add these methods to order service
-async getTaxRateFromDatabase(countryCode) {
-  try {
-    // Correct country code if needed
+  async getTaxRateFromDatabase(countryCode) {
+    try {
+      // Correct country code if needed
+      const correctedCountry = countryCode === 'TN' ? 'IN' : countryCode;
+      
+      const countryTax = await prisma.countryTaxRate.findFirst({
+        where: { 
+          countryCode: correctedCountry,
+          isActive: true 
+        }
+      });
+
+      if (!countryTax) {
+        throw new Error(`No tax rate found for ${correctedCountry}`);
+      }
+
+
+
+      return countryTax;
+    } catch (error) {
+      console.error('Database tax rate fetch failed:', error);
+      throw error;
+    }
+  }
+
+  async getStaticTaxRate(countryCode) {
+    // Static fallback rates
+    const staticRates = {
+      'IN': 0.18,    // India GST
+      'US': 0.085,   // USA average
+      'GB': 0.20,    // UK VAT
+      'DE': 0.19,    // Germany VAT
+      'FR': 0.20,    // France VAT
+      'CA': 0.13,    // Canada HST
+      'AU': 0.10,    // Australia GST
+      'default': 0.10
+    };
+    
     const correctedCountry = countryCode === 'TN' ? 'IN' : countryCode;
+    const rate = staticRates[correctedCountry] || staticRates.default;
     
-    const countryTax = await prisma.countryTaxRate.findFirst({
-      where: { 
-        countryCode: correctedCountry,
-        isActive: true 
-      }
-    });
 
-    if (!countryTax) {
-      throw new Error(`No tax rate found for ${correctedCountry}`);
-    }
-
-
-
-    return countryTax;
-  } catch (error) {
-    console.error('Database tax rate fetch failed:', error);
-    throw error;
+    return rate;
   }
-}
 
-async getStaticTaxRate(countryCode) {
-  // Static fallback rates
-  const staticRates = {
-    'IN': 0.18,    // India GST
-    'US': 0.085,   // USA average
-    'GB': 0.20,    // UK VAT
-    'DE': 0.19,    // Germany VAT
-    'FR': 0.20,    // France VAT
-    'CA': 0.13,    // Canada HST
-    'AU': 0.10,    // Australia GST
-    'default': 0.10
-  };
-  
-  const correctedCountry = countryCode === 'TN' ? 'IN' : countryCode;
-  const rate = staticRates[correctedCountry] || staticRates.default;
-  
-
-  return rate;
-}
-
-async handleAsyncOperations(order) {
-  
-  try {
-    const results = await Promise.allSettled([
-      this.forwardToPrintify(order).catch(err => {
-        console.error(`❌ Printify forwarding failed for order ${order.id}:`, err);
-        return { status: 'rejected', reason: err };
-      }),
-      this.sendOrderNotifications(order).catch(err => {
-        console.error(`❌ Email sending failed for order ${order.id}:`, err);
-        return { status: 'rejected', reason: err };
-      })
-    ]);
-
-    
-    // Log detailed results
-    results.forEach((result, index) => {
-      const operation = index === 0 ? 'Printify' : 'Email';
-      if (result.status === 'fulfilled') {
-      } else {
-        console.error(`❌ ${operation} operation failed for order ${order.id}:`, result.reason);
-      }
-    });
-    
-  } catch (error) {
-    console.error(`💥 Async operations handler crashed for order ${order.id}:`, error);
-  }
-}
-
-async forwardToPrintify(order) {
-  
-  try {
-    // Validate order data
-    if (!order.items || order.items.length === 0) {
-      throw new Error('No items in order');
-    }
-
-    const printifyItems = order.items.map((item) => ({
-      ...item,
-      printifyProductId: item.product.printifyProductId,
-      sku: item.product.sku,
-    }));
-
-
-    const printifyOrder = await this.printifyService.createOrder({
-      orderId: order.id,
-      items: printifyItems,
-      shippingAddress: order.shippingAddress,
-      orderImage: order.orderImage,
-    });
-
-
-    // Update order with Printify ID
-    await prisma.order.update({
-      where: { id: order.id },
-      data: {
-        printifyOrderId: printifyOrder.id,
-        fulfillmentStatus: "PROCESSING",
-      },
-    });
-
-    logger.info(`✅ Order ${order.id} forwarded to Printify: ${printifyOrder.id}`);
-    
-    return printifyOrder;
-  } catch (err) {
-    console.error(`❌ Printify forwarding failed for order ${order.id}:`, err);
-    
-    // Update order status to indicate Printify failure
-    await prisma.order.update({
-      where: { id: order.id },
-      data: {
-        fulfillmentStatus: "PRINTIFY_FAILED",
-      },
-    }).catch(updateErr => {
-      console.error(`❌ Failed to update order status after Printify failure:`, updateErr);
-    });
-    
-    throw err; // Re-throw to be caught by Promise.allSettled
-  }
-}
-
-async sendOrderNotifications(order) {
-  
-  try {
-    if (!order.user?.email) {
-      const errorMsg = `❌ Customer email not found for order ${order.id}`;
-      console.error(errorMsg);
-      throw new Error(errorMsg);
-    }
-
-
-    // Generate email content with timeout
-    let customerEmailHtml, adminEmailHtml;
+  async handleAsyncOperations(order) {
     
     try {
+      const results = await Promise.allSettled([
+        this.forwardToPrintify(order).catch(err => {
+          console.error(`❌ Printify forwarding failed for order ${order.id}:`, err);
+          return { status: 'rejected', reason: err };
+        }),
+        this.sendOrderNotifications(order).catch(err => {
+          console.error(`❌ Email sending failed for order ${order.id}:`, err);
+          return { status: 'rejected', reason: err };
+        })
+      ]);
+
+      
+      // Log detailed results
+      results.forEach((result, index) => {
+        const operation = index === 0 ? 'Printify' : 'Email';
+        if (result.status === 'fulfilled') {
+        } else {
+          console.error(`❌ ${operation} operation failed for order ${order.id}:`, result.reason);
+        }
+      });
+      
+    } catch (error) {
+      console.error(`💥 Async operations handler crashed for order ${order.id}:`, error);
+    }
+  }
+
+  async forwardToPrintify(order) {
+    
+    try {
+      // Validate order data
+      if (!order.items || order.items.length === 0) {
+        throw new Error('No items in order');
+      }
+
+      const printifyItems = order.items.map((item) => ({
+        ...item,
+        printifyProductId: item.product.printifyProductId,
+        sku: item.product.sku,
+      }));
+
+
+      const printifyOrder = await this.printifyService.createOrder({
+        orderId: order.id,
+        items: printifyItems,
+        shippingAddress: order.shippingAddress,
+        orderImage: order.orderImage,
+      });
+
+
+      // Update order with Printify ID
+      await prisma.order.update({
+        where: { id: order.id },
+        data: {
+          printifyOrderId: printifyOrder.id,
+          fulfillmentStatus: "PROCESSING",
+        },
+      });
+
+      logger.info(`✅ Order ${order.id} forwarded to Printify: ${printifyOrder.id}`);
+      
+      return printifyOrder;
+    } catch (err) {
+      console.error(`❌ Printify forwarding failed for order ${order.id}:`, err);
+      
+      // Update order status to indicate Printify failure
+      await prisma.order.update({
+        where: { id: order.id },
+        data: {
+          fulfillmentStatus: "PRINTIFY_FAILED",
+        },
+      }).catch(updateErr => {
+        console.error(`❌ Failed to update order status after Printify failure:`, updateErr);
+      });
+      
+      throw err; // Re-throw to be caught by Promise.allSettled
+    }
+  }
+
+  async sendOrderNotifications(order) {
+    
+    try {
+      if (!order.user?.email) {
+        const errorMsg = `❌ Customer email not found for order ${order.id}`;
+        console.error(errorMsg);
+        throw new Error(errorMsg);
+      }
+
+
+      // Generate email content with timeout
+      let customerEmailHtml, adminEmailHtml;
+      
+      try {
+        // Customer email
+        customerEmailHtml = await Promise.race([
+          getOrderConfirmationEmail(order),
+          new Promise((_, reject) => 
+            setTimeout(() => reject(new Error('Email template timeout')), 10000)
+          )
+        ]);
+      } catch (templateError) {
+        console.error('❌ Customer email template error:', templateError);
+        customerEmailHtml = this.getFallbackOrderEmail(order);
+      }
+
+      try {
+        // Admin email - ADD THIS PART
+        adminEmailHtml = await Promise.race([
+          getAdminNewOrderEmail(order), // Use your existing function
+          new Promise((_, reject) => 
+            setTimeout(() => reject(new Error('Admin email template timeout')), 10000)
+          )
+        ]);
+      } catch (templateError) {
+        console.error('❌ Admin email template error:', templateError);
+        adminEmailHtml = this.getFallbackAdminEmail(order);
+      }
+
+      // Send emails with better error handling
+      const emailPromises = [];
+      
       // Customer email
-      customerEmailHtml = await Promise.race([
-        getOrderConfirmationEmail(order),
-        new Promise((_, reject) => 
-          setTimeout(() => reject(new Error('Email template timeout')), 10000)
-        )
-      ]);
-    } catch (templateError) {
-      console.error('❌ Customer email template error:', templateError);
-      customerEmailHtml = this.getFallbackOrderEmail(order);
-    }
-
-    try {
-      // Admin email - ADD THIS PART
-      adminEmailHtml = await Promise.race([
-        getAdminNewOrderEmail(order), // Use your existing function
-        new Promise((_, reject) => 
-          setTimeout(() => reject(new Error('Admin email template timeout')), 10000)
-        )
-      ]);
-    } catch (templateError) {
-      console.error('❌ Admin email template error:', templateError);
-      adminEmailHtml = this.getFallbackAdminEmail(order);
-    }
-
-    // Send emails with better error handling
-    const emailPromises = [];
-    
-    // Customer email
-    emailPromises.push(
-      sendMail(
-        order.user.email,
-        `Order Confirmation - #${order.id}`,
-        customerEmailHtml
-      ).then(() => {
-        logger(`✅ Customer email sent to: ${order.user.email}`);
-      }).catch(error => {
-        throw new Error(`Customer email failed: ${error.message}`);
-      })
-    );
-
-    // Admin email
-    if (process.env.ADMIN_EMAIL) {
       emailPromises.push(
         sendMail(
-          process.env.ADMIN_EMAIL,
-          `New Order - #${order.id}`,
-          adminEmailHtml
+          order.user.email,
+          `Order Confirmation - #${order.id}`,
+          customerEmailHtml
         ).then(() => {
+          logger(`✅ Customer email sent to: ${order.user.email}`);
         }).catch(error => {
-          console.error('❌ Admin email failed:', error);
-          // Don't throw for admin email failures
+          throw new Error(`Customer email failed: ${error.message}`);
         })
       );
+
+      // Admin email
+      if (process.env.ADMIN_EMAIL) {
+        emailPromises.push(
+          sendMail(
+            process.env.ADMIN_EMAIL,
+            `New Order - #${order.id}`,
+            adminEmailHtml
+          ).then(() => {
+          }).catch(error => {
+            console.error('❌ Admin email failed:', error);
+            // Don't throw for admin email failures
+          })
+        );
+      }
+
+      const results = await Promise.allSettled(emailPromises);
+      
+      return results;
+      
+    } catch (error) {
+      console.error(`❌ Email notification failed for order ${order.id}:`, error);
+      throw error;
     }
-
-    const results = await Promise.allSettled(emailPromises);
-    
-    return results;
-    
-  } catch (error) {
-    console.error(`❌ Email notification failed for order ${order.id}:`, error);
-    throw error;
   }
-}
 
-// Add fallback admin email function
-getFallbackAdminEmail(order) {
-  return `
-    <h2>New Order #${order.id}</h2>
-    <p><strong>Customer:</strong> ${order.user?.name || 'N/A'}</p>
-    <p><strong>Total:</strong> ${order.currency} ${order.totalAmount}</p>
-    <p><strong>Date:</strong> ${new Date(order.createdAt).toLocaleString()}</p>
-    <p>Please check the admin dashboard for details.</p>
-  `;
-}
+  // Add fallback admin email function
+  getFallbackAdminEmail(order) {
+    return `
+      <h2>New Order #${order.id}</h2>
+      <p><strong>Customer:</strong> ${order.user?.name || 'N/A'}</p>
+      <p><strong>Total:</strong> ${order.currency} ${order.totalAmount}</p>
+      <p><strong>Date:</strong> ${new Date(order.createdAt).toLocaleString()}</p>
+      <p>Please check the admin dashboard for details.</p>
+    `;
+  }
 
   async debugOrderSync(orderId) {
     try {
@@ -832,7 +762,6 @@ getFallbackAdminEmail(order) {
 
 
 async cancelOrder(orderId, reason, cancelledBy) {
-  
   try {
     // Step 1: Quick database fetch with correct field names
     const order = await prisma.order.findUnique({
@@ -841,7 +770,7 @@ async cancelOrder(orderId, reason, cancelledBy) {
         id: true,
         fulfillmentStatus: true,
         paymentStatus: true,
-        razorpayPaymentId: true, // Changed from paymentId
+        razorpayPaymentId: true,
         totalAmount: true,
         printifyOrderId: true,
         userId: true,
@@ -865,9 +794,9 @@ async cancelOrder(orderId, reason, cancelledBy) {
     if (order.paymentStatus === 'SUCCEEDED' && order.razorpayPaymentId) {
       refundStatus = 'PENDING';
       refundAmount = order.totalAmount;
-
     } else {
-      logger('ℹ️ OrderService: No refund required', {
+      // FIXED: Replace logger with console.log
+      console.log('ℹ️ OrderService: No refund required', {
         paymentStatus: order.paymentStatus,
         hasPaymentId: !!order.razorpayPaymentId
       });
@@ -886,7 +815,6 @@ async cancelOrder(orderId, reason, cancelledBy) {
       refundRequestedAt: refundStatus === 'PENDING' ? new Date() : null
     };
 
-    
     const cancelledOrder = await prisma.order.update({
       where: { id: orderId },
       data: updateData,
@@ -899,7 +827,6 @@ async cancelOrder(orderId, reason, cancelledBy) {
         } 
       }
     });
-
 
     // Step 5: Start background processing (non-blocking)
     this.processBackgroundTasks(cancelledOrder, reason).catch(error => {
@@ -914,175 +841,175 @@ async cancelOrder(orderId, reason, cancelledBy) {
   }
 }
 
-// Separate method for background tasks
-async processBackgroundTasks(cancelledOrder, reason) {
-  
-  try {
-    // 1. Printify cancellation (if needed)
-    if (cancelledOrder.printifyOrderId) {
-      try {
-        await this.printifyService.cancelOrder(cancelledOrder.printifyOrderId);
-      } catch (printifyError) {
-        console.warn('⚠️ Printify cancellation failed (non-critical):', printifyError.message);
-      }
-    }
-
-    // 2. Refund processing (if needed) - use razorpayPaymentId
-    if (cancelledOrder.refundStatus === 'PENDING' && cancelledOrder.razorpayPaymentId) {
-      await this.processRefund(cancelledOrder, reason);
-    } else {
-      logger('ℹ️ No refund processing needed', {
-        refundStatus: cancelledOrder.refundStatus,
-        hasPaymentId: !!cancelledOrder.razorpayPaymentId
-      });
-    }
-
-    // 3. Send notifications
-    await this.sendCancellationNotifications(cancelledOrder, reason, cancelledOrder.cancelledBy);
-
+  // Separate method for background tasks
+  async processBackgroundTasks(cancelledOrder, reason) {
     
-  } catch (error) {
-    console.error('❌ Background tasks failed:', error.message);
-  }
-}
-
-
-async sendCancellationNotifications(order, reason, cancelledBy) {
-  try {
-    // Send email to customer
-    const customerEmailContent = await getOrderCancelledEmail(order, reason, cancelledBy);
-    await sendMail(
-      order.user.email,
-      `Order #${order.id} Cancellation Confirmation - Agumiya Collections`,
-      customerEmailContent
-    );
-
-    // Send email to admin
-    const adminEmailContent = getAdminCancellationEmail(order, reason, cancelledBy);
-    await sendMail(
-      process.env.ADMIN_EMAIL || 'support@agumiyacollections.com',
-      `🚨 Order Cancellation Alert - #${order.id}`,
-      adminEmailContent
-    );
-
-    logger.info(`📧 Cancellation notifications sent to customer and admin for order ${order.id}`);
-  } catch (error) {
-    logger.error(`❌ Failed to send cancellation notifications:`, error);
-    throw error;
-  }
-}
-
-
-async processRefund(order, reason = "Order cancellation") {
-  const MAX_RETRIES = 3;
-  const RETRY_DELAY = 2000; // 2 seconds
-  
-  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
     try {
-      
-      // Enhanced validation
-      if (!order.razorpayPaymentId) {
-        throw new Error(`No Razorpay payment ID found for order ${order.id}`);
-      }
-
-      if (!order.refundAmount || order.refundAmount <= 0) {
-        throw new Error(`Invalid refund amount: ${order.refundAmount}`);
-      }
-
-      // Update refund status to processing
-      await prisma.order.update({
-        where: { id: order.id },
-        data: { 
-          refundStatus: 'PROCESSING',
-          orderNotes: `${order.orderNotes} | Refund attempt ${attempt} started`
+      // 1. Printify cancellation (if needed)
+      if (cancelledOrder.printifyOrderId) {
+        try {
+          await this.printifyService.cancelOrder(cancelledOrder.printifyOrderId);
+        } catch (printifyError) {
+          console.warn('⚠️ Printify cancellation failed (non-critical):', printifyError.message);
         }
-      });
+      }
 
-      // Process refund with Razorpay
-      const refund = await this.razorpayService.refundPayment(
-        order.razorpayPaymentId, 
-        order.refundAmount
+      // 2. Refund processing (if needed) - use razorpayPaymentId
+      if (cancelledOrder.refundStatus === 'PENDING' && cancelledOrder.razorpayPaymentId) {
+        await this.processRefund(cancelledOrder, reason);
+      } else {
+        logger('ℹ️ No refund processing needed', {
+          refundStatus: cancelledOrder.refundStatus,
+          hasPaymentId: !!cancelledOrder.razorpayPaymentId
+        });
+      }
+
+      // 3. Send notifications
+      await this.sendCancellationNotifications(cancelledOrder, reason, cancelledOrder.cancelledBy);
+
+      
+    } catch (error) {
+      console.error('❌ Background tasks failed:', error.message);
+    }
+  }
+
+
+  async sendCancellationNotifications(order, reason, cancelledBy) {
+    try {
+      // Send email to customer
+      const customerEmailContent = await getOrderCancelledEmail(order, reason, cancelledBy);
+      await sendMail(
+        order.user.email,
+        `Order #${order.id} Cancellation Confirmation - Agumiya Collections`,
+        customerEmailContent
       );
 
-      // Create refund record
-      const refundRecord = await prisma.refund.create({
-        data: {
-          orderId: order.id,
-          refundId: refund.id,
-          amount: order.refundAmount,
-          status: 'COMPLETED',
-          reason: reason,
-          processedAt: new Date(),
-          notes: `Razorpay Refund ID: ${refund.id} | Status: ${refund.status} | Amount: ${refund.amount}`
-        }
-      });
+      // Send email to admin
+      const adminEmailContent = getAdminCancellationEmail(order, reason, cancelledBy);
+      await sendMail(
+        process.env.ADMIN_EMAIL || 'support@agumiyacollections.com',
+        `🚨 Order Cancellation Alert - #${order.id}`,
+        adminEmailContent
+      );
 
-      // Update order with refund details
-      const updatedOrder = await prisma.order.update({
-        where: { id: order.id },
-        data: {
-          refundStatus: 'COMPLETED',
-          refundProcessedAt: new Date(),
-          paymentStatus: 'REFUNDED',
-          razorpayRefundId: refund.id,
-          orderNotes: `${order.orderNotes} | Refund processed successfully: ${refund.id}`
-        },
-        include: {
-          user: true,
-          items: { include: { product: true } }
-        }
-      });
-
-      logger.info(`✅ Refund processed for order ${order.id}: ${refund.id}`);
-      
-      // Send refund confirmation
-      await this.sendRefundNotification(updatedOrder, refund.id);
-      
-      return refundRecord;
-
+      logger.info(`📧 Cancellation notifications sent to customer and admin for order ${order.id}`);
     } catch (error) {
-      console.error(`❌ Refund attempt ${attempt} failed:`, error);
-      
-      // Log payment failure
-      await prisma.paymentLog.create({
-        data: {
-          orderId: order.id,
-          userId: order.userId,
-          paymentId: `refund_failed_attempt_${attempt}_${Date.now()}`,
-          amount: order.refundAmount,
-          status: 'FAILED',
-          errorMessage: error.message,
-          gateway: 'RAZORPAY',
-          rawResponse: { 
-            error: error.toString(),
-            attempt: attempt,
-            timestamp: new Date().toISOString()
-          }
-        }
-      });
+      logger.error(`❌ Failed to send cancellation notifications:`, error);
+      throw error;
+    }
+  }
 
-      // If last attempt, mark as failed
-      if (attempt === MAX_RETRIES) {
+
+  async processRefund(order, reason = "Order cancellation") {
+    const MAX_RETRIES = 3;
+    const RETRY_DELAY = 2000; // 2 seconds
+      
+    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+      try {
+        
+        // Enhanced validation
+        if (!order.razorpayPaymentId) {
+          throw new Error(`No Razorpay payment ID found for order ${order.id}`);
+        }
+
+        if (!order.refundAmount || order.refundAmount <= 0) {
+          throw new Error(`Invalid refund amount: ${order.refundAmount}`);
+        }
+
+        // Update refund status to processing
         await prisma.order.update({
           where: { id: order.id },
           data: { 
-            refundStatus: 'FAILED',
-            orderNotes: `${order.orderNotes} | Refund failed after ${MAX_RETRIES} attempts: ${error.message}`
+            refundStatus: 'PROCESSING',
+            orderNotes: `${order.orderNotes} | Refund attempt ${attempt} started`
           }
         });
 
-        logger.error(`❌ Refund processing failed for order ${order.id} after ${MAX_RETRIES} attempts:`, error);
-        
-        // Send failure notification
-        await this.sendRefundNotification(order, error.message);
-        throw error;
-      }
+        // Process refund with Razorpay
+        const refund = await this.razorpayService.refundPayment(
+          order.razorpayPaymentId, 
+          order.refundAmount
+        );
 
-      // Wait before retry
-      await new Promise(resolve => setTimeout(resolve, RETRY_DELAY));
+        // Create refund record
+        const refundRecord = await prisma.refund.create({
+          data: {
+            orderId: order.id,
+            refundId: refund.id,
+            amount: order.refundAmount,
+            status: 'COMPLETED',
+            reason: reason,
+            processedAt: new Date(),
+            notes: `Razorpay Refund ID: ${refund.id} | Status: ${refund.status} | Amount: ${refund.amount}`
+          }
+        });
+
+        // Update order with refund details
+        const updatedOrder = await prisma.order.update({
+          where: { id: order.id },
+          data: {
+            refundStatus: 'COMPLETED',
+            refundProcessedAt: new Date(),
+            paymentStatus: 'REFUNDED',
+            razorpayRefundId: refund.id,
+            orderNotes: `${order.orderNotes} | Refund processed successfully: ${refund.id}`
+          },
+          include: {
+            user: true,
+            items: { include: { product: true } }
+          }
+        });
+
+        logger.info(`✅ Refund processed for order ${order.id}: ${refund.id}`);
+        
+        // Send refund confirmation
+        await this.sendRefundNotification(updatedOrder, refund.id);
+        
+        return refundRecord;
+
+      } catch (error) {
+        console.error(`❌ Refund attempt ${attempt} failed:`, error);
+        
+        // Log payment failure
+        await prisma.paymentLog.create({
+          data: {
+            orderId: order.id,
+            userId: order.userId,
+            paymentId: `refund_failed_attempt_${attempt}_${Date.now()}`,
+            amount: order.refundAmount,
+            status: 'FAILED',
+            errorMessage: error.message,
+            gateway: 'RAZORPAY',
+            rawResponse: { 
+              error: error.toString(),
+              attempt: attempt,
+              timestamp: new Date().toISOString()
+            }
+          }
+        });
+
+        // If last attempt, mark as failed
+        if (attempt === MAX_RETRIES) {
+          await prisma.order.update({
+            where: { id: order.id },
+            data: { 
+              refundStatus: 'FAILED',
+              orderNotes: `${order.orderNotes} | Refund failed after ${MAX_RETRIES} attempts: ${error.message}`
+            }
+          });
+
+          logger.error(`❌ Refund processing failed for order ${order.id} after ${MAX_RETRIES} attempts:`, error);
+          
+          // Send failure notification
+          await this.sendRefundNotification(order, error.message);
+          throw error;
+        }
+
+        // Wait before retry
+        await new Promise(resolve => setTimeout(resolve, RETRY_DELAY));
+      }
     }
   }
-}
 
 
 async sendRefundNotification(order, refundId) {

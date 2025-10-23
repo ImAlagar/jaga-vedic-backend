@@ -59,16 +59,24 @@ export async function syncProducts(shopId) {
                 id: variant.id,
                 price: variant.price ? variant.price / 100 : 0,
                 sku: variant.sku || "",
-                isAvailable:
-                  variant.is_available !== undefined
-                    ? variant.is_available
-                    : true,
-                is_selected_for_publishing:
-                  variant.is_selected_for_publishing || false,
-                is_enabled:
-                  variant.is_enabled !== undefined ? variant.is_enabled : true,
+                isAvailable: variant.is_available !== undefined ? variant.is_available : true,
+                is_selected_for_publishing: variant.is_selected_for_publishing || false,
+                is_enabled: variant.is_enabled !== undefined ? variant.is_enabled : true,
                 title: variant.title || `Variant ${variant.id}`,
               }))
+            : [];
+
+          // ✅ ADD THIS: Extract color options from Printify API
+          const colorOptions = product.options 
+            ? product.options
+                .filter(option => option.type === 'color')
+                .flatMap(option => 
+                  option.values.map(value => ({
+                    name: value.title,
+                    hexCode: value.colors && value.colors[0] ? value.colors[0] : '#000000',
+                    printifyId: value.id
+                  }))
+                )
             : [];
 
           const result = await prisma.product.upsert({
@@ -76,15 +84,13 @@ export async function syncProducts(shopId) {
             update: {
               name: product.title,
               description: product.description || "",
-              price:
-                product.variants && product.variants[0]?.price
-                  ? product.variants[0].price / 100
-                  : 0,
+              price: product.variants && product.variants[0]?.price ? product.variants[0].price / 100 : 0,
               images: product.images ? product.images.map((img) => img.src) : [],
               sku: product.variants && product.variants[0]?.sku,
-              category:
-                product.tags && product.tags[0] ? product.tags[0] : "general",
+              category: product.tags && product.tags[0] ? product.tags[0] : "general",
               printifyVariants: variants,
+              // ✅ ADD THIS: Store color options
+              colorOptions: colorOptions, // This will be stored as JSON
               printifyBlueprintId: product.blueprint_id || null,
               printifyPrintProviderId: product.print_provider_id || null,
               isPublished,
@@ -93,16 +99,14 @@ export async function syncProducts(shopId) {
             create: {
               name: product.title,
               description: product.description || "",
-              price:
-                product.variants && product.variants[0]?.price
-                  ? product.variants[0].price / 100
-                  : 0,
+              price: product.variants && product.variants[0]?.price ? product.variants[0].price / 100 : 0,
               images: product.images ? product.images.map((img) => img.src) : [],
               printifyProductId: product.id,
               sku: product.variants && product.variants[0]?.sku,
-              category:
-                product.tags && product.tags[0] ? product.tags[0] : "general",
+              category: product.tags && product.tags[0] ? product.tags[0] : "general",
               printifyVariants: variants,
+              // ✅ ADD THIS: Store color options
+              colorOptions: colorOptions, // This will be stored as JSON
               printifyBlueprintId: product.blueprint_id || null,
               printifyPrintProviderId: product.print_provider_id || null,
               isPublished,
@@ -122,6 +126,7 @@ export async function syncProducts(shopId) {
       await Promise.all(batchPromises);
       await new Promise((resolve) => setTimeout(resolve, 500));
     }
+
 
     logger.info(
       `✅ Sync completed: ${processedCount} processed | ${publishedCount} published | ${unpublishedCount} unpublished`

@@ -20,6 +20,7 @@ import {
   processRefund,
   retryRefund,
   resetRefundStatus,
+  fixRefundStatus,
   
 } from "../controllers/orderController.js";
 import { verifyUserToken } from "../middlewares/authToken.js";
@@ -46,6 +47,7 @@ router.get("/cancelled", verifyAdminToken, getCancelledOrders);
 router.get("/cancellation-stats", verifyAdminToken, getCancellationStats);
 
 router.patch("/:orderId/status", verifyAdminToken, orderValidators.updateStatus, validateRequest, updateOrderStatus);
+router.patch('/:orderId/fix-refund-status', verifyAdminToken, fixRefundStatus);
 router.post("/:orderId/retry-printify", verifyAdminToken, retryPrintifyForwarding);
 router.post("/:orderId/sync-status", verifyAdminToken, syncOrderStatus);
 router.post("/:orderId/admin-cancel", verifyAdminToken, adminCancelOrder);

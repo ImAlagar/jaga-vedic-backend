@@ -15,96 +15,87 @@ export class PaymentService {
 
   }
 
-  // 🔥 OPTIMIZED: Create Razorpay order with faster checks
-async createRazorpayOrder(orderId, userId) {
-  try {
-    // Get order with ALL currency info and shipping address
-    const order = await prisma.order.findFirst({
-      where: { 
-        id: parseInt(orderId),
-        userId: userId 
-      },
-      include: {
-        user: { select: { email: true } },
-        shipping: true // Include shipping to get country
+  async createRazorpayOrder(orderId, userId) {
+    try {
+      // Get order with currency info and shipping address
+      const order = await prisma.order.findFirst({
+        where: { 
+          id: parseInt(orderId),
+          userId: userId 
+        },
+        include: {
+          user: { select: { email: true } },
+          shipping: true
+        }
+      });
+
+      if (!order) {
+        throw new Error("Order not found or access denied");
       }
-    });
 
-    if (!order) {
-      throw new Error("Order not found or access denied");
-    }
+      // Get user's country from shipping address
+      const userCountry = order.shippingAddress?.country || 'US';
 
-    // Get user's country from shipping address
-    const userCountry = order.shippingAddress?.country || 'US';
+      // Determine currency based on user location
+      let razorpayAmount, razorpayCurrency, displayAmount, displayCurrency;
 
+      if (userCountry === 'IN') {
+        // Indian customers pay in INR
+        razorpayAmount = order.totalAmount;
+        razorpayCurrency = "INR";
+        displayAmount = order.totalAmount;
+        displayCurrency = "INR";
+      } else {
+        // International customers - convert to INR for Razorpay
+        razorpayAmount = order.totalAmount;
+        razorpayCurrency = "INR";
+        displayAmount = order.originalAmount || (order.totalAmount / order.exchangeRate);
+        displayCurrency = "USD";
+      }
 
-    // 🔥 FIX: DETERMINE CURRENCY BASED ON USER LOCATION
-    let razorpayAmount, razorpayCurrency, displayAmount, displayCurrency;
+      const options = {
+        amount: Math.round(razorpayAmount * 100), // Convert to paise
+        currency: razorpayCurrency,
+        receipt: `order_${order.id}`,
+        notes: {
+          orderId: order.id.toString(),
+          userId: userId.toString(),
+          displayAmount: displayAmount,
+          displayCurrency: displayCurrency,
+          chargedAmount: razorpayAmount,
+          chargedCurrency: razorpayCurrency,
+          userCountry: userCountry,
+          exchangeRate: order.exchangeRate
+        }
+      };
 
-    // Indian customers pay in INR
-    if (userCountry === 'IN') {
-      razorpayAmount = order.totalAmount; // Already in INR
-      razorpayCurrency = "INR";
-      displayAmount = order.totalAmount;
-      displayCurrency = "INR";
-      
-    } 
-    // International customers pay in USD (if Razorpay supports) or converted currency
-    else {
-      // Check if Razorpay supports USD for international payments
-      // Note: Razorpay primarily supports INR, but check their international payment options
-      const supportedInternationalCurrencies = ['USD', 'EUR', 'GBP']; // Add currencies Razorpay supports
-      
-      // For now, we'll convert to INR for all international payments
-      // but show the user USD amount
-      razorpayAmount = order.totalAmount; // Already converted to INR during order creation
-      razorpayCurrency = "INR"; // Razorpay's primary currency
-      displayAmount = order.originalAmount || (order.totalAmount / order.exchangeRate); // Show USD equivalent
-      displayCurrency = "USD";
-      
-    }
+      const razorpayOrder = await this.razorpay.orders.create(options);
 
-    const options = {
-      amount: Math.round(razorpayAmount * 100), // Convert to smallest currency unit
-      currency: razorpayCurrency,
-      receipt: `order_${order.id}`,
-      notes: {
-        orderId: order.id.toString(),
-        userId: userId.toString(),
-        displayAmount: displayAmount,
+      // Update order with Razorpay order ID
+      await prisma.order.update({
+        where: { id: order.id },
+        data: { 
+          razorpayOrderId: razorpayOrder.id,
+          paymentStatus: "PENDING"
+        }
+      });
+
+      return {
+        id: razorpayOrder.id,
+        amount: razorpayOrder.amount,
+        currency: razorpayOrder.currency,
+        key: process.env.RAZORPAY_KEY_ID,
+        displayAmount: parseFloat(displayAmount.toFixed(2)),
         displayCurrency: displayCurrency,
-        chargedAmount: razorpayAmount,
-        chargedCurrency: razorpayCurrency,
-        userCountry: userCountry,
-        exchangeRate: order.exchangeRate
-      }
-    };
-
-
-    const razorpayOrder = await this.razorpay.orders.create(options);
-
-    await prisma.order.update({
-      where: { id: order.id },
-      data: { 
-        razorpayOrderId: razorpayOrder.id,
-        paymentStatus: "PENDING"
-      }
-    });
-
-    return {
-      id: razorpayOrder.id,
-      amount: razorpayOrder.amount,
-      currency: razorpayOrder.currency,
-      key: process.env.RAZORPAY_KEY_ID,
-      displayAmount: parseFloat(displayAmount.toFixed(2)), // What user should see
-      displayCurrency: displayCurrency, // What user should see
-      userCountry: userCountry // For frontend display
-    };
-  } catch (error) {
-    logger.error(`❌ Payment order creation failed: ${error.message}`);
-    throw error;
+        userCountry: userCountry
+      };
+    } catch (error) {
+      console.error(`Payment order creation failed: ${error.message}`);
+      throw error;
+    }
   }
-}
+
+
   // 🔥 OPTIMIZED: Faster payment verification
 async verifyRazorpayPayment(paymentData, userId) {
     const { razorpay_order_id, razorpay_payment_id, razorpay_signature, orderId } = paymentData;

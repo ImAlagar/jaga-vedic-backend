@@ -36,7 +36,7 @@ export class CreateOrderDto {
     if (!this.shippingAddress) {
       errors.push('Shipping address is required');
     } else {
-      const requiredFields = ['firstName', 'lastName', 'email', 'phone', 'address1', 'city', 'country', 'zipCode'];
+      const requiredFields = ['firstName', 'email', 'phone', 'address1', 'city', 'country', 'zipCode'];
       requiredFields.forEach(field => {
         if (!this.shippingAddress[field]) {
           errors.push(`Shipping address ${field} is required`);

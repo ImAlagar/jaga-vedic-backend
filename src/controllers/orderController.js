@@ -503,6 +503,7 @@ export async function getCancellationStats(req, res) {
   }
 }
 
+// In your orderController.js (backend)
 export async function processRefund(req, res) {
   try {
     const { orderId } = req.params;
@@ -512,19 +513,85 @@ export async function processRefund(req, res) {
       return errorResponse(res, "Valid order ID is required", HttpStatus.BAD_REQUEST);
     }
 
-    const order = await orderService.getOrderById(parseInt(orderId));
+    console.log(`🔄 Processing refund for order ${orderId}`);
+
+    // Get complete order data with proper validation
+    const order = await prisma.order.findUnique({
+      where: { id: parseInt(orderId) },
+      include: {
+        user: { select: { id: true, email: true, name: true } },
+        items: { include: { product: true } }
+      }
+    });
     
     if (!order) {
       return errorResponse(res, "Order not found", HttpStatus.NOT_FOUND);
     }
 
-    if (order.refundStatus !== 'PENDING') {
-      return errorResponse(res, `Refund cannot be processed. Current status: ${order.refundStatus}`, HttpStatus.BAD_REQUEST);
+    console.log('📦 Order details:', {
+      id: order.id,
+      paymentStatus: order.paymentStatus,
+      refundStatus: order.refundStatus,
+      hasPaymentId: !!order.razorpayPaymentId,
+      fulfillmentStatus: order.fulfillmentStatus
+    });
+
+    // ENHANCED VALIDATION: Check if payment was actually successful
+    if (order.paymentStatus === 'PENDING' || order.paymentStatus === 'FAILED') {
+      // This order was never paid, so no refund should be processed
+      return errorResponse(res, 
+        `Order was not paid (payment status: ${order.paymentStatus}). No refund required.`, 
+        HttpStatus.BAD_REQUEST
+      );
+    }
+
+    // Enhanced validation with specific error messages
+    if (order.refundStatus === 'COMPLETED') {
+      return errorResponse(res, "Refund has already been processed for this order", HttpStatus.BAD_REQUEST);
+    }
+
+    if (order.refundStatus === 'PROCESSING') {
+      return errorResponse(res, "Refund is already being processed for this order", HttpStatus.BAD_REQUEST);
+    }
+
+    if (order.refundStatus !== 'PENDING' && order.refundStatus !== 'FAILED') {
+      return errorResponse(res, `Refund cannot be processed. Current refund status: ${order.refundStatus}`, HttpStatus.BAD_REQUEST);
+    }
+
+    if (!order.razorpayPaymentId) {
+      // Check if this is a valid scenario for manual handling
+      if (order.paymentStatus === 'SUCCEEDED') {
+        return errorResponse(res, "Order shows as paid but has no payment ID. Please process refund manually through Razorpay dashboard.", HttpStatus.BAD_REQUEST);
+      } else {
+        return errorResponse(res, "Order has no payment ID and was not successfully paid. No refund required.", HttpStatus.BAD_REQUEST);
+      }
+    }
+
+    if (order.paymentStatus !== 'SUCCEEDED' && order.paymentStatus !== 'REFUND_PENDING') {
+      return errorResponse(res, `Cannot refund order with payment status: ${order.paymentStatus}`, HttpStatus.BAD_REQUEST);
     }
 
     const refund = await orderService.processRefund(order, reason || "Manual refund processing");
 
     return successResponse(res, refund, "Refund processed successfully");
+  } catch (error) {
+    console.error('❌ Refund processing failed:', error);
+    return errorResponse(res, error.message, HttpStatus.BAD_REQUEST);
+  }
+}
+
+// In your orderController.js
+export async function fixRefundStatus(req, res) {
+  try {
+    const { orderId } = req.params;
+    
+    if (!orderId || isNaN(orderId)) {
+      return errorResponse(res, "Valid order ID is required", HttpStatus.BAD_REQUEST);
+    }
+
+    const fixedOrder = await orderService.fixOrderRefundStatus(parseInt(orderId));
+
+    return successResponse(res, fixedOrder, "Order refund status fixed successfully");
   } catch (error) {
     return errorResponse(res, error.message, HttpStatus.BAD_REQUEST);
   }

@@ -2,6 +2,7 @@
 import currencyService from './currencyService.js';
 
 export class CalculationService {
+  
   async calculateCartTotals(cartItems, shippingAddress, couponCode = '') {
     try {
       // 1. Calculate in base currency (USD)

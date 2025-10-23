@@ -158,6 +158,7 @@ model Product {
   
   // Printify-specific fields
   printifyVariants          Json?
+  colorOptions              Json?
   printifyBlueprintId       Int?
   printifyPrintProviderId   Int?
   

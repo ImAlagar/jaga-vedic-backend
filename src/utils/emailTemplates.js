@@ -69,6 +69,12 @@ function getCurrencySymbol(currency) {
   return symbols[currency] || '$';
 }
 
+
+const roundAmount = (amount) => {
+  return Math.round(parseFloat(amount || 0));
+};
+
+
 // =============================================================================
 // RESPONSIVE TABLE STYLES & HELPERS
 // =============================================================================
@@ -364,86 +370,42 @@ export function getWelcomeEmail(name, verificationUrl = null) {
 /**
  * Order Confirmation Email
  */
+
+
 export async function getOrderConfirmationEmail(order) {
+  if (!order || !order.items) {
+    console.error('Invalid order data in getOrderConfirmationEmail:', order);
+    return getFallbackOrderConfirmationEmail(order);
+  }
+
   const userCurrency = order.currency || 'USD';
   const currencySymbol = getCurrencySymbol(userCurrency);
 
+  // ✅ CORRECT CONVERSION FUNCTION
+  const convertToLocal = (usdAmount) => {
+    if (userCurrency === 'USD') return usdAmount;
+    const exchangeRate = order.exchangeRate || 83;
+    return (usdAmount || 0) * exchangeRate;
+  };
+
   const formatPrice = (amount) => {
-    const number = parseFloat(amount);
-    return number.toLocaleString('en-IN', {
+    // ✅ ROUND THE AMOUNT FIRST
+    const roundedAmount = roundAmount(amount);
+    return parseFloat(roundedAmount).toLocaleString('en-IN', {
       minimumFractionDigits: 2,
       maximumFractionDigits: 2
     });
   };
 
-  const convertPrice = (usdAmount) => {
-    if (userCurrency === 'USD') return usdAmount;
-    const exchangeRate = order.exchangeRate || 83;
-    return usdAmount * exchangeRate;
-  };
-
-  // Mobile-friendly items list
-  const mobileItemsHtml = await Promise.all(order.items.map(async (item, index) => {
-    const productDetails = formatProductDetails(item);
-    const convertedPrice = convertPrice(item.price);
-    const itemTotal = convertedPrice * item.quantity;
-    
-    return `
-      <div class="mobile-order-item" style="border-bottom: 1px solid #eee; padding: 15px 0; ${index === order.items.length - 1 ? 'border-bottom: none;' : ''}">
-        <div style="display: flex; gap: 12px;">
-          <img src="${item.product?.images?.[0] || ''}" alt="${item.product?.name || 'Product'}" width="60" style="border-radius: 6px; border: 1px solid #f0f0f0; flex-shrink: 0;">
-          <div style="flex: 1;">
-            <strong style="color: #333; display: block; margin-bottom: 5px;">${item.product?.name || 'Product'}</strong>
-            ${productDetails}
-            <div style="margin-top: 8px; color: #666; font-size: 14px;">
-              <span>Qty: ${item.quantity}</span> • 
-              <span>Price: ${currencySymbol}${formatPrice(convertedPrice)}</span>
-            </div>
-            <div style="margin-top: 4px; color: #888; font-size: 12px;">
-              <em>Originally: $${formatPrice(item.price)} USD</em>
-            </div>
-          </div>
-        </div>
-      </div>
-    `;
-  }));
-
-  // Desktop table items - WITH CONVERTED PRICES
-  const desktopItemsHtml = await Promise.all(order.items.map(async (item) => {
-    const productDetails = formatProductDetails(item);
-    const convertedPrice = convertPrice(item.price);
-    const itemTotal = convertedPrice * item.quantity;
-    
-
-    
-
-    return `
-      <tr>
-        <td style="padding: 15px; border-bottom: 1px solid #eee; text-align: center; width: 80px;" class="mobile-hide">
-          <img src="${item.product?.images?.[0] || ''}" alt="${item.product?.name || 'Product'}" width="70" style="border-radius: 8px; border: 1px solid #f0f0f0;">
-        </td>
-        <td style="padding: 15px; border-bottom: 1px solid #eee;">
-          <strong style="color: #333;">${item.product?.name || 'Product'}</strong>
-          ${productDetails}
-          <div style="margin-top: 4px; color: #888; font-size: 12px;">
-            <em>Originally: $${formatPrice(item.price)} USD</em>
-          </div>
-        </td>
-        <td style="padding: 15px; border-bottom: 1px solid #eee; text-align: center; width: 60px;" class="mobile-hide">${item.quantity}</td>
-        <td style="padding: 15px; border-bottom: 1px solid #eee; text-align: right; width: 100px;" class="mobile-hide">${currencySymbol}${formatPrice(convertedPrice)}</td>
-        <td style="padding: 15px; border-bottom: 1px solid #eee; text-align: right; width: 100px;" class="mobile-hide">${currencySymbol}${formatPrice(itemTotal)}</td>
-      </tr>
-    `;
-  }));
-
-    // Use the ALREADY CONVERTED amounts from order
+  // ✅ CORRECT AMOUNTS WITH ROUNDING
   const localTotal = formatPrice(order.totalAmount);
-  const localSubtotal = formatPrice(convertPrice(order.subtotalAmount || 0));
-  const localShipping = order.shippingCost ? formatPrice(convertPrice(order.shippingCost)) : '0.00';
-  const localTax = order.taxAmount ? formatPrice(convertPrice(order.taxAmount)) : '0.00';
-  const localDiscount = order.discountAmount ? formatPrice(convertPrice(order.discountAmount)) : '0.00';
+  const localSubtotal = formatPrice(convertToLocal(order.subtotalAmount || 0));
+  const shippingCost = order.shipping?.shippingCost || order.shippingCost || 0;
+  const localShipping = formatPrice(convertToLocal(shippingCost));
+  const localTax = formatPrice(convertToLocal(order.taxAmount || 0));
+  const localDiscount = formatPrice(convertToLocal(order.discountAmount || 0));
 
-    // ✅ ADD AMOUNT BREAKDOWN SECTION
+  // ✅ ADD AMOUNT BREAKDOWN SECTION WITH ROUNDED AMOUNTS
   const amountBreakdown = `
     <div style="margin-top: 20px; padding: 20px; background: #f0f8ff; border-radius: 8px; border-left: 4px solid #667eea;">
       <h4 style="margin: 0 0 15px 0; color: #333; font-size: 16px;">💰 Order Amount Details</h4>
@@ -470,7 +432,7 @@ export async function getOrderConfirmationEmail(order) {
     </div>
   `;
 
-    // Add currency conversion note
+  // Add currency conversion note
   const currencyNote = userCurrency !== 'USD' ? `
     <div style="margin-top: 10px; padding: 10px; background: #f0f8ff; border-radius: 5px; border-left: 4px solid #667eea;">
       <small>
@@ -480,13 +442,97 @@ export async function getOrderConfirmationEmail(order) {
     </div>
   ` : '';
 
-  // Add missing helper functions
+  // Mobile-friendly items list
+  const mobileItemsHtml = await Promise.all(order.items.map(async (item, index) => {
+    if (!item) return '';
+    
+    const convertedPrice = convertToLocal(item.price || 0);
+    // ✅ ROUND THE ITEM TOTAL PROPERLY
+    const itemTotal = roundAmount(convertedPrice * (item.quantity || 1));
+    const productDetails = formatProductDetails(item);
+    const productImage = item.product?.images?.[0] || '/images/placeholder-product.jpg';
+    const productName = item.product?.name || 'Product';
+    
+    return `
+      <div class="mobile-order-item" style="border-bottom: 1px solid #eee; padding: 15px 0; ${index === order.items.length - 1 ? 'border-bottom: none;' : ''}">
+        <div style="display: flex; gap: 12px;">
+          <img src="${productImage}" alt="${productName}" width="60" style="border-radius: 6px; border: 1px solid #f0f0f0; flex-shrink: 0;">
+          <div style="flex: 1;">
+            <strong style="color: #333; display: block; margin-bottom: 5px;">${productName}</strong>
+            ${productDetails}
+            <div style="margin-top: 8px; color: #666; font-size: 14px;">
+              <span>Qty: ${item.quantity || 1}</span> • 
+              <span>Price: ${currencySymbol}${formatPrice(convertedPrice)}</span>
+            </div>
+            <div style="margin-top: 4px; color: #666; font-size: 14px;">
+              <strong>Item Total: ${currencySymbol}${formatPrice(itemTotal)}</strong>
+            </div>
+            ${userCurrency !== 'USD' ? `
+              <div style="margin-top: 4px; color: #888; font-size: 12px;">
+                <em>Originally: $${formatPrice(item.price || 0)} USD</em>
+              </div>
+            ` : ''}
+          </div>
+        </div>
+      </div>
+    `;
+  }));
+
+  // Desktop table items - WITH PROPERLY ROUNDED PRICES
+  const desktopItemsHtml = await Promise.all(order.items.map(async (item) => {
+    if (!item) return '';
+    
+    const convertedPrice = convertToLocal(item.price || 0);
+    // ✅ ROUND THE ITEM TOTAL PROPERLY
+    const itemTotal = roundAmount(convertedPrice * (item.quantity || 1));
+    const productDetails = formatProductDetails(item);
+    const productImage = item.product?.images?.[0] || '/images/placeholder-product.jpg';
+    const productName = item.product?.name || 'Product';
+
+    return `
+      <tr>
+        <td style="padding: 15px; border-bottom: 1px solid #eee; text-align: center; width: 80px;" class="mobile-hide">
+          <img src="${productImage}" alt="${productName}" width="70" style="border-radius: 8px; border: 1px solid #f0f0f0;">
+        </td>
+        <td style="padding: 15px; border-bottom: 1px solid #eee;">
+          <strong style="color: #333;">${productName}</strong>
+          ${productDetails}
+          ${userCurrency !== 'USD' ? `
+            <div style="margin-top: 4px; color: #888; font-size: 12px;">
+              <em>Originally: $${formatPrice(item.price || 0)} USD</em>
+            </div>
+          ` : ''}
+        </td>
+        <td style="padding: 15px; border-bottom: 1px solid #eee; text-align: center; width: 60px;" class="mobile-hide">${item.quantity || 1}</td>
+        <td style="padding: 15px; border-bottom: 1px solid #eee; text-align: right; width: 100px;" class="mobile-hide">${currencySymbol}${formatPrice(convertedPrice)}</td>
+        <td style="padding: 15px; border-bottom: 1px solid #eee; text-align: right; width: 100px;" class="mobile-hide">${currencySymbol}${formatPrice(itemTotal)}</td>
+      </tr>
+    `;
+  }));
+
+  // Helper functions
   function responsiveTableWrapper(content) {
     return `<div style="overflow-x: auto;">${content}</div>`;
   }
 
+  function formatProductDetails(item) {
+    if (!item.product) return '';
+    
+    const details = [];
+    if (item.product.category) {
+      details.push(`<div style="color: #666; font-size: 14px;">${item.product.category}</div>`);
+    }
+    if (item.size) {
+      details.push(`<div style="color: #666; font-size: 14px;">Size: ${item.size}</div>`);
+    }
+    if (item.color) {
+      details.push(`<div style="color: #666; font-size: 14px;">Color: ${item.color}</div>`);
+    }
+    
+    return details.join('');
+  }
 
-    return `
+  return `
     <!DOCTYPE html>
     <html>
     <head>
@@ -494,17 +540,67 @@ export async function getOrderConfirmationEmail(order) {
       <meta name="viewport" content="width=device-width, initial-scale=1.0">
       <title>Order Confirmation #${order.id} - Agumiya Collections</title>
       <style>
-        /* Your existing CSS */
-        body { font-family: 'Arial', sans-serif; line-height: 1.6; color: #333; margin: 0; padding: 0; background: #f9f9f9; }
-        .container { max-width: 600px; margin: 0 auto; padding: 20px; }
-        .header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 40px 20px; text-align: center; border-radius: 10px 10px 0 0; }
-        .content { background: white; padding: 40px; border-radius: 0 0 10px 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
-        .order-section { background: #f8f9fa; padding: 25px; border-radius: 8px; margin: 20px 0; }
-        table { width: 100%; border-collapse: collapse; }
-        th { background: #f5f5f5; padding: 12px 15px; text-align: left; font-weight: 600; color: #555; }
-        .status-badge { display: inline-block; padding: 6px 12px; background: #ffa500; color: white; border-radius: 20px; font-size: 12px; font-weight: 600; }
-        .total-row { background: #f8f9fa; font-weight: bold; }
-        .footer { margin-top: 30px; padding: 20px; background: #f8f9fa; text-align: center; font-size: 12px; color: #6c757d; border-radius: 8px; }
+        body { 
+          font-family: 'Arial', sans-serif; 
+          line-height: 1.6; 
+          color: #333; 
+          margin: 0; 
+          padding: 0; 
+          background: #f9f9f9; 
+        }
+        .container { 
+          max-width: 600px; 
+          margin: 0 auto; 
+          padding: 20px; 
+        }
+        .header { 
+          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
+          color: white; 
+          padding: 40px 20px; 
+          text-align: center; 
+          border-radius: 10px 10px 0 0; 
+        }
+        .content { 
+          background: white; 
+          padding: 40px; 
+          border-radius: 0 0 10px 10px; 
+          box-shadow: 0 2px 10px rgba(0,0,0,0.1); 
+        }
+        .order-section { 
+          background: #f8f9fa; 
+          padding: 25px; 
+          border-radius: 8px; 
+          margin: 20px 0; 
+        }
+        table { 
+          width: 100%; 
+          border-collapse: collapse; 
+        }
+        th { 
+          background: #f5f5f5; 
+          padding: 12px 15px; 
+          text-align: left; 
+          font-weight: 600; 
+          color: #555; 
+        }
+        .status-badge { 
+          display: inline-block; 
+          padding: 6px 12px; 
+          background: #ffa500; 
+          color: white; 
+          border-radius: 20px; 
+          font-size: 12px; 
+          font-weight: 600; 
+        }
+        .footer { 
+          margin-top: 30px; 
+          padding: 20px; 
+          background: #f8f9fa; 
+          text-align: center; 
+          font-size: 12px; 
+          color: #6c757d; 
+          border-radius: 8px; 
+        }
         
         @media only screen and (max-width: 600px) {
           .container { padding: 10px; }
@@ -547,7 +643,7 @@ export async function getOrderConfirmationEmail(order) {
             <!-- Mobile View -->
             <div class="mobile-only">
               ${mobileItemsHtml.join('')}
-              ${amountBreakdown} <!-- ✅ ADD BREAKDOWN HERE -->
+              ${amountBreakdown}
             </div>
             
             <!-- Desktop View -->
@@ -568,11 +664,10 @@ export async function getOrderConfirmationEmail(order) {
                   </tbody>
                 </table>
               `)}
-              ${amountBreakdown} <!-- ✅ ADD BREAKDOWN HERE -->
+              ${amountBreakdown}
             </div>
           </div>
 
-          <!-- Rest of your template remains same -->
           ${order.shippingAddress ? `
           <div class="order-section">
             <h3 style="color: #333; margin-top: 0; border-bottom: 2px solid #667eea; padding-bottom: 10px;">Shipping Address</h3>
@@ -588,13 +683,47 @@ export async function getOrderConfirmationEmail(order) {
           </div>
           ` : ''}
 
-          <!-- ... rest of your template ... -->
+          <div class="order-section">
+            <h3 style="color: #333; margin-top: 0; border-bottom: 2px solid #667eea; padding-bottom: 10px;">What's Next?</h3>
+            <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 15px; text-align: center;">
+              <div style="padding: 15px; background: white; border-radius: 8px;">
+                <div style="font-size: 24px; margin-bottom: 10px;">🏭</div>
+                <strong>Production</strong>
+                <p style="margin: 8px 0 0 0; font-size: 12px;">We start creating your products</p>
+              </div>
+              <div style="padding: 15px; background: white; border-radius: 8px;">
+                <div style="font-size: 24px; margin-bottom: 10px;">📦</div>
+                <strong>Shipping</strong>
+                <p style="margin: 8px 0 0 0; font-size: 12px;">We'll ship within 3-5 business days</p>
+              </div>
+              <div style="padding: 15px; background: white; border-radius: 8px;">
+                <div style="font-size: 24px; margin-bottom: 10px;">🎁</div>
+                <strong>Delivery</strong>
+                <p style="margin: 8px 0 0 0; font-size: 12px;">Receive your order in 5-10 days</p>
+              </div>
+            </div>
+          </div>
+
+          <div style="text-align: center; margin: 25px 0;">
+            <a href="${process.env.CLIENT_URL || 'https://yourapp.com'}/orders/${order.id}" 
+               style="display: inline-block; padding: 12px 24px; background: #667eea; color: white; text-decoration: none; border-radius: 6px; font-weight: 600;">
+              Track Your Order
+            </a>
+          </div>
+        </div>
+        
+        <div class="footer">
+          <p>Thank you for shopping with Agumiya Collections!</p>
+          <p>If you have any questions, contact us at <a href="mailto:support@agumiyacollections.com">support@agumiyacollections.com</a></p>
+          <p>© ${new Date().getFullYear()} Agumiya Collections. All rights reserved.</p>
         </div>
       </div>
     </body>
     </html>
   `;
 }
+
+
 
 /**
  * Payment Success Email
@@ -617,13 +746,15 @@ export async function getPaymentSuccessEmail(order, userCurrency = 'USD') {
   };
 
   const formatPrice = (amount) => {
-    return parseFloat(amount || 0).toLocaleString('en-IN', {
+    // ✅ ROUND THE AMOUNT FIRST
+    const roundedAmount = roundAmount(amount);
+    return parseFloat(roundedAmount).toLocaleString('en-IN', {
       minimumFractionDigits: 2,
       maximumFractionDigits: 2
     });
   };
 
-  // ✅ CORRECT AMOUNTS
+  // ✅ CORRECT AMOUNTS WITH ROUNDING
   const localTotal = formatPrice(order.totalAmount); // Already in local currency
   const localSubtotal = formatPrice(convertToLocal(order.subtotalAmount || 0));
   const shippingCost = order.shipping?.shippingCost || order.shippingCost || 0;
@@ -631,7 +762,7 @@ export async function getPaymentSuccessEmail(order, userCurrency = 'USD') {
   const localTax = formatPrice(convertToLocal(order.taxAmount || 0));
   const localDiscount = formatPrice(convertToLocal(order.discountAmount || 0));
 
-  // ✅ ADD AMOUNT BREAKDOWN
+  // ✅ ADD AMOUNT BREAKDOWN WITH ROUNDED AMOUNTS
   const amountBreakdown = `
     <div style="margin-top: 15px; padding: 15px; background: #f0f8ff; border-radius: 6px; border-left: 4px solid #28a745;">
       <h4 style="margin: 0 0 12px 0; color: #333; font-size: 16px;">💰 Payment Breakdown</h4>
@@ -658,7 +789,7 @@ export async function getPaymentSuccessEmail(order, userCurrency = 'USD') {
     </div>
   `;
 
-  // Mobile-friendly items list - FIXED CONVERSION
+  // Mobile-friendly items list - FIXED CONVERSION WITH ROUNDING
   const mobileItemsHtml = await Promise.all(order.items.map(async (item, index) => {
     if (!item) return '';
     
@@ -689,7 +820,7 @@ export async function getPaymentSuccessEmail(order, userCurrency = 'USD') {
     `;
   }));
 
-  // Desktop table items - FIXED CONVERSION
+  // Desktop table items - FIXED CONVERSION WITH ROUNDING
   const desktopItemsHtml = await Promise.all(order.items.map(async (item) => {
     if (!item) return '';
     
@@ -1047,35 +1178,39 @@ export async function getPaymentFailedEmail(order, errorMessage, userCurrency = 
  * Admin New Order Notification (Responsive)
  */
 export async function getAdminNewOrderEmail(order, userCurrency = 'USD') {
-  const currencySymbol = getCurrencySymbol(order.currency || userCurrency);  
-  
-  // ✅ CORRECT CONVERSION FUNCTION ADD PANNU
+  const currencySymbol = getCurrencySymbol(order.currency || userCurrency);
+
+  // ✅ Round to nearest full number
+  const roundAmount = (amount) => {
+    return Math.round(parseFloat(amount || 0));
+  };
+
+  // ✅ Convert USD → Local Currency
   const convertToLocal = (usdAmount) => {
     if (order.currency === 'USD') return usdAmount;
     const exchangeRate = order.exchangeRate || 83;
     return (usdAmount || 0) * exchangeRate;
   };
 
+  // ✅ Format with 2 decimals (₹15 → ₹15.00)
   const formatPrice = (amount) => {
     return parseFloat(amount || 0).toLocaleString('en-IN', {
       minimumFractionDigits: 2,
-      maximumFractionDigits: 2
+      maximumFractionDigits: 2,
     });
   };
 
-  // ✅ CORRECT CONVERSIONS
-  const localTotal = formatPrice(order.totalAmount);
-  const localSubtotal = formatPrice(convertToLocal(order.subtotalAmount || 0));
-  
-  // ✅ FIX: Check shipping from order.shipping relation
+  // ✅ Correct conversions + rounding
+  const localTotal = formatPrice(roundAmount(order.totalAmount));
+  const localSubtotal = formatPrice(roundAmount(convertToLocal(order.subtotalAmount || 0)));
+
   const shippingCost = order.shipping?.shippingCost || order.shippingCost || 0;
-  const localShipping = formatPrice(convertToLocal(shippingCost));
-  
-  const localTax = formatPrice(convertToLocal(order.taxAmount || 0));
-  const localDiscount = formatPrice(convertToLocal(order.discountAmount || 0));
+  const localShipping = formatPrice(roundAmount(convertToLocal(shippingCost)));
 
+  const localTax = formatPrice(roundAmount(convertToLocal(order.taxAmount || 0)));
+  const localDiscount = formatPrice(roundAmount(convertToLocal(order.discountAmount || 0)));
 
- 
+  // ✅ Amount Breakdown Section
   const amountBreakdown = `
     <div style="margin-top: 15px; padding: 15px; background: #f8f9fa; border-radius: 6px; border: 1px solid #ddd;">
       <h4 style="margin: 0 0 12px 0; color: #333; font-size: 16px;">💰 Amount Breakdown</h4>
@@ -1089,10 +1224,14 @@ export async function getAdminNewOrderEmail(order, userCurrency = 'USD') {
         <div><strong>Tax:</strong></div>
         <div style="text-align: right;">${currencySymbol}${localTax}</div>
         
-        ${order.discountAmount > 0 ? `
+        ${
+          order.discountAmount > 0
+            ? `
           <div><strong style="color: #dc3545;">Discount:</strong></div>
           <div style="text-align: right; color: #dc3545;">-${currencySymbol}${localDiscount}</div>
-        ` : ''}
+        `
+            : ''
+        }
         
         <div style="border-top: 2px solid #ccc; padding-top: 10px; margin-top: 5px; font-weight: bold; font-size: 16px;">Total Amount:</div>
         <div style="border-top: 2px solid #ccc; padding-top: 10px; margin-top: 5px; text-align: right; font-weight: bold; font-size: 16px; color: #ff6b6b;">
@@ -1101,100 +1240,107 @@ export async function getAdminNewOrderEmail(order, userCurrency = 'USD') {
       </div>
     </div>
   `;
-  
-  // Mobile-friendly items list
-  const mobileItemsHtml = await Promise.all(order.items.map(async (item, index) => {
-    const localPrice = await convertCurrency(item.price, 'USD', userCurrency);
-    const productDetails = formatProductDetails(item);
-    
-    return `
-      <div class="mobile-order-item" style="border-bottom: 1px solid #eee; padding: 12px 0; ${index === order.items.length - 1 ? 'border-bottom: none;' : ''}">
-        <div style="display: flex; gap: 10px;">
-          <img src="${item.product.images[0]}" alt="${item.product.name}" width="50" style="border-radius: 4px; border: 1px solid #f0f0f0; flex-shrink: 0;">
-          <div style="flex: 1;">
-            <strong style="color: #333; display: block; margin-bottom: 4px;">${item.product.name}</strong>
-            ${productDetails}
-            <div style="margin-top: 6px; color: #666; font-size: 14px;">
-              <span>Qty: ${item.quantity}</span> • 
-              <span>Price: ${currencySymbol}${localPrice}</span>
+
+  // ✅ Mobile-friendly item list
+  const mobileItemsHtml = await Promise.all(
+    order.items.map(async (item, index) => {
+      const localPriceRaw = await convertCurrency(item.price, 'USD', userCurrency);
+      const localPrice = formatPrice(roundAmount(localPriceRaw));
+      const productDetails = formatProductDetails(item);
+
+      return `
+        <div class="mobile-order-item" style="border-bottom: 1px solid #eee; padding: 12px 0; ${
+          index === order.items.length - 1 ? 'border-bottom: none;' : ''
+        }">
+          <div style="display: flex; gap: 10px;">
+            <img src="${item.product.images[0]}" alt="${item.product.name}" width="50" style="border-radius: 4px; border: 1px solid #f0f0f0; flex-shrink: 0;">
+            <div style="flex: 1;">
+              <strong style="color: #333; display: block; margin-bottom: 4px;">${item.product.name}</strong>
+              ${productDetails}
+              <div style="margin-top: 6px; color: #666; font-size: 14px;">
+                <span>Qty: ${item.quantity}</span> • 
+                <span>Price: ${currencySymbol}${localPrice}</span>
+              </div>
             </div>
           </div>
         </div>
-      </div>
-    `;
-  }));
+      `;
+    })
+  );
 
-  // Desktop table items
-  const desktopItemsHtml = await Promise.all(order.items.map(async (item) => {
-    const localPrice = await convertCurrency(item.price, 'USD', userCurrency);
-    const productDetails = formatProductDetails(item);
-    
-    return `
-      <tr>
-        <td style="padding: 10px; border-bottom: 1px solid #eee; text-align: center; width: 60px;" class="mobile-hide">
-          <img src="${item.product.images[0]}" alt="${item.product.name}" width="50" style="border-radius: 4px; border: 1px solid #f0f0f0;">
-        </td>
-        <td style="padding: 10px; border-bottom: 1px solid #eee;">${item.product.name}${productDetails}</td>
-        <td style="padding: 10px; border-bottom: 1px solid #eee; text-align: center; width: 40px;" class="mobile-hide">${item.quantity}</td>
-        <td style="padding: 10px; border-bottom: 1px solid #eee; text-align: right; width: 80px;" class="mobile-hide">${currencySymbol}${localPrice}</td>
-      </tr>
-    `;
-  }));
+  // ✅ Desktop item table
+  const desktopItemsHtml = await Promise.all(
+    order.items.map(async (item) => {
+      const localPriceRaw = await convertCurrency(item.price, 'USD', userCurrency);
+      const localPrice = formatPrice(roundAmount(localPriceRaw));
+      const productDetails = formatProductDetails(item);
 
+      return `
+        <tr>
+          <td style="padding: 10px; border-bottom: 1px solid #eee; text-align: center; width: 60px;" class="mobile-hide">
+            <img src="${item.product.images[0]}" alt="${item.product.name}" width="50" style="border-radius: 4px; border: 1px solid #f0f0f0;">
+          </td>
+          <td style="padding: 10px; border-bottom: 1px solid #eee;">${item.product.name}${productDetails}</td>
+          <td style="padding: 10px; border-bottom: 1px solid #eee; text-align: center; width: 40px;" class="mobile-hide">${item.quantity}</td>
+          <td style="padding: 10px; border-bottom: 1px solid #eee; text-align: right; width: 80px;" class="mobile-hide">${currencySymbol}${localPrice}</td>
+        </tr>
+      `;
+    })
+  );
+
+  // ✅ Return Full HTML
   return `
     <!DOCTYPE html>
     <html>
-    <head>
-      <!-- Your existing CSS -->
-    </head>
-    <body>
-      <div class="container">
-        <div class="header">
-          <h1 style="margin: 0; font-size: 28px;">🛒 New Order Received!</h1>
-          <p style="margin: 10px 0 0 0; opacity: 0.9;">Order #${order.id} requires your attention</p>
-        </div>
-        
-        <div class="content">
-          <!-- Alert section -->
-          <div class="alert-section">
-            <h3 style="margin: 0 0 10px 0; color: #856404;">Action Required: Process This Order</h3>
-            <p style="margin: 0;">This order needs to be processed and forwarded to Printify for fulfillment.</p>
+      <head>
+        <!-- Add your existing CSS here -->
+      </head>
+      <body>
+        <div class="container">
+          <div class="header">
+            <h1 style="margin: 0; font-size: 28px;">🛒 New Order Received!</h1>
+            <p style="margin: 10px 0 0 0; opacity: 0.9;">Order #${order.id} requires your attention</p>
           </div>
-
-          <div class="order-section">
-            <h3 style="color: #333; margin-top: 0; border-bottom: 2px solid #ff6b6b; padding-bottom: 8px;">Order Summary</h3>
-            
-            <!-- Mobile View -->
-            <div class="mobile-only">
-              ${mobileItemsHtml.join('')}
-              ${amountBreakdown}
+          
+          <div class="content">
+            <!-- Alert section -->
+            <div class="alert-section">
+              <h3 style="margin: 0 0 10px 0; color: #856404;">Action Required: Process This Order</h3>
+              <p style="margin: 0;">This order needs to be processed and forwarded to Printify for fulfillment.</p>
             </div>
-            
-            <!-- Desktop View -->
-            <div class="mobile-hide">
-              ${responsiveTableWrapper(`
-                <table class="responsive-table">
-                  <thead>
-                    <tr>
-                      <th style="width: 60px; text-align: center;">Image</th>
-                      <th>Product</th>
-                      <th style="width: 40px; text-align: center;">Qty</th>
-                      <th style="width: 80px; text-align: right;">Price</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    ${desktopItemsHtml.join('')}
-                  </tbody>
-                </table>
-              `)}
-              ${amountBreakdown}
+
+            <div class="order-section">
+              <h3 style="color: #333; margin-top: 0; border-bottom: 2px solid #ff6b6b; padding-bottom: 8px;">Order Summary</h3>
+              
+              <!-- Mobile View -->
+              <div class="mobile-only">
+                ${mobileItemsHtml.join('')}
+                ${amountBreakdown}
+              </div>
+              
+              <!-- Desktop View -->
+              <div class="mobile-hide">
+                ${responsiveTableWrapper(`
+                  <table class="responsive-table">
+                    <thead>
+                      <tr>
+                        <th style="width: 60px; text-align: center;">Image</th>
+                        <th>Product</th>
+                        <th style="width: 40px; text-align: center;">Qty</th>
+                        <th style="width: 80px; text-align: right;">Price</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      ${desktopItemsHtml.join('')}
+                    </tbody>
+                  </table>
+                `)}
+                ${amountBreakdown}
+              </div>
             </div>
           </div>
-
-          <!-- Rest of your template... -->
         </div>
-      </div>
-    </body>
+      </body>
     </html>
   `;
 }
@@ -1231,14 +1377,14 @@ export async function getOrderCancelledEmail(order, reason, cancelledBy, userCur
       });
     };
 
-    // ✅ SAFELY ACCESS AMOUNTS WITH NULL CHECKS
-    const localTotal = formatPrice(order.totalAmount || 0);
-    const localSubtotal = formatPrice(convertToLocal(order.subtotalAmount || 0));
-    const shippingCost = (order.shipping && order.shipping.shippingCost) || order.shippingCost || 0;
-    const localShipping = formatPrice(convertToLocal(shippingCost));
-    const localTax = formatPrice(convertToLocal(order.taxAmount || 0));
-    const localDiscount = formatPrice(convertToLocal(order.discountAmount || 0));
-    const localRefund = formatPrice(convertToLocal(order.refundAmount || order.totalAmount || 0));
+const localTotal = formatPrice(roundAmount(order.totalAmount || 0));
+const localSubtotal = formatPrice(roundAmount(convertToLocal(order.subtotalAmount || 0)));
+const shippingCost = (order.shipping && order.shipping.shippingCost) || order.shippingCost || 0;
+const localShipping = formatPrice(roundAmount(convertToLocal(shippingCost)));
+const localTax = formatPrice(roundAmount(convertToLocal(order.taxAmount || 0)));
+const localDiscount = formatPrice(roundAmount(convertToLocal(order.discountAmount || 0)));
+const localRefund = formatPrice(roundAmount(convertToLocal(order.refundAmount || order.totalAmount || 0)));
+
 
     // ✅ AMOUNT BREAKDOWN
     const amountBreakdown = `
@@ -1305,7 +1451,8 @@ export async function getOrderCancelledEmail(order, reason, cancelledBy, userCur
               <strong style="color: #333; display: block; margin-bottom: 4px;">${productName}</strong>
               <div style="margin-top: 6px; color: #666; font-size: 14px;">
                 <span>Qty: ${itemQuantity}</span> • 
-                <span>Price: ${currencySymbol}${formatPrice(convertedPrice)}</span>
+                <span>Price: ${currencySymbol}${formatPrice(roundAmount(convertedPrice))}</span>
+
               </div>
               ${displayCurrency !== 'USD' ? `
                 <div style="margin-top: 4px; color: #888; font-size: 12px;">
@@ -1344,7 +1491,7 @@ export async function getOrderCancelledEmail(order, reason, cancelledBy, userCur
             ` : ''}
           </td>
           <td style="padding: 12px; border-bottom: 1px solid #eee; text-align: center; width: 50px;" class="mobile-hide">${itemQuantity}</td>
-          <td style="padding: 12px; border-bottom: 1px solid #eee; text-align: right; width: 90px;" class="mobile-hide">${currencySymbol}${formatPrice(convertedPrice)}</td>
+          <td style="padding: 12px; border-bottom: 1px solid #eee; text-align: right; width: 90px;" class="mobile-hide">${currencySymbol}${formatPrice(roundAmount(convertedPrice))}</td>
         </tr>
       `;
     }).join('');
@@ -2102,6 +2249,9 @@ export async function getOrderShippedEmail(order, trackingInfo, userCurrency = '
     </html>
   `;
 }
+
+// Add this function to your email templates
+
 
 export default {
   getPasswordResetEmail,

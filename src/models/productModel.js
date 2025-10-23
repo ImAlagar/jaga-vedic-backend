@@ -131,6 +131,7 @@ export async function findAllProducts(
           printifyProductId: true,
           sku: true,
           printifyVariants: true,
+          colorOptions: true,
           createdAt: true,
           updatedAt: true
         },
@@ -192,6 +193,7 @@ export async function findAllProductsAdmin(page = 1, limit = 10, search = '', ca
           printifyProductId: true,
           sku: true,
           printifyVariants: true,
+          colorOptions: true,
           createdAt: true,
           updatedAt: true
         },
