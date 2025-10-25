@@ -170,7 +170,7 @@ export async function updateCoupon(req, res) {
 
     const coupon = await couponService.updateCoupon(id, updateData);
     
-    return successResponse(
+    return successResponse( 
       res,
       coupon,
       "Coupon updated successfully",

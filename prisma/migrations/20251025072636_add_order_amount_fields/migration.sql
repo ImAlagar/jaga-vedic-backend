@@ -1,0 +1,7 @@
+-- AlterEnum
+ALTER TYPE "public"."FulfillmentStatus" ADD VALUE 'PRINTIFY_FAILED';
+
+-- AlterTable
+ALTER TABLE "public"."orders" ADD COLUMN     "shippingCost" DOUBLE PRECISION NOT NULL DEFAULT 0,
+ADD COLUMN     "taxAmount" DOUBLE PRECISION NOT NULL DEFAULT 0,
+ADD COLUMN     "taxRate" DOUBLE PRECISION NOT NULL DEFAULT 0;

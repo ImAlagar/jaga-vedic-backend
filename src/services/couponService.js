@@ -218,39 +218,72 @@ export class CouponService {
   /**
    * Calculate discount amount
    */
-  _calculateDiscount(coupon, applicableSubtotal) {
-    if (!coupon || applicableSubtotal <= 0) {
-      return 0;
-    }
+_calculateDiscount(coupon, applicableSubtotal) {
+  console.log('🔍 COUPON CALCULATION DEBUG:', {
+    couponCode: coupon?.code,
+    discountType: coupon?.discountType,
+    discountValue: coupon?.discountValue,
+    applicableSubtotal: applicableSubtotal,
+    hasCoupon: !!coupon,
+    subtotalValid: applicableSubtotal > 0
+  });
 
-    let discountAmount = 0;
-
-    try {
-      if (coupon.discountType === "PERCENTAGE") {
-        discountAmount = (applicableSubtotal * coupon.discountValue) / 100;
-        
-        // Apply max discount limit
-        if (coupon.maxDiscountAmount && discountAmount > coupon.maxDiscountAmount) {
-          discountAmount = coupon.maxDiscountAmount;
-        }
-      } else if (coupon.discountType === "FIXED_AMOUNT") {
-        discountAmount = Math.min(coupon.discountValue, applicableSubtotal);
-      }
-
-      // Ensure discount doesn't exceed applicable subtotal
-      discountAmount = Math.min(discountAmount, applicableSubtotal);
-      
-      // Round to 2 decimal places
-      discountAmount = Math.round(discountAmount * 100) / 100;
-
-    } catch (error) {
-      logger.error('Discount calculation error', { error: error.message, coupon, applicableSubtotal });
-      discountAmount = 0;
-    }
-
-    return discountAmount;
+  if (!coupon) {
+    console.log('❌ No coupon object');
+    return 0;
   }
 
+  if (applicableSubtotal <= 0) {
+    console.log('❌ Zero or negative applicable subtotal');
+    return 0;
+  }
+
+  let discountAmount = 0;
+
+  try {
+    console.log('🔄 Starting discount calculation...');
+    
+    if (coupon.discountType === "PERCENTAGE") {
+      console.log('📊 Percentage discount calculation:');
+      console.log(`   ${applicableSubtotal} × ${coupon.discountValue}% = ${(applicableSubtotal * coupon.discountValue) / 100}`);
+      
+      discountAmount = (applicableSubtotal * coupon.discountValue) / 100;
+      
+      console.log('💰 Before max discount check:', discountAmount);
+      
+      // Apply max discount limit
+      if (coupon.maxDiscountAmount && discountAmount > coupon.maxDiscountAmount) {
+        console.log(`📏 Applying max discount limit: ${coupon.maxDiscountAmount}`);
+        discountAmount = coupon.maxDiscountAmount;
+      }
+    } 
+    else if (coupon.discountType === "FIXED_AMOUNT") {
+      console.log('💵 Fixed amount discount calculation:');
+      console.log(`   Min(${coupon.discountValue}, ${applicableSubtotal})`);
+      
+      discountAmount = Math.min(coupon.discountValue, applicableSubtotal);
+    }
+    else {
+      console.log('❌ Unknown discount type:', coupon.discountType);
+    }
+
+    console.log('🔢 Before final checks:', discountAmount);
+    
+    // Ensure discount doesn't exceed applicable subtotal
+    discountAmount = Math.min(discountAmount, applicableSubtotal);
+    
+    // Round to 2 decimal places
+    discountAmount = Math.round(discountAmount * 100) / 100;
+    
+    console.log('✅ FINAL DISCOUNT AMOUNT:', discountAmount);
+
+  } catch (error) {
+    console.error('❌ Discount calculation error:', error);
+    discountAmount = 0;
+  }
+
+  return discountAmount;
+}
   /**
    * Create new coupon (Admin only)
    */
@@ -580,6 +613,44 @@ async updateCoupon(id, updateData) {
       throw new AppError('FETCH_ERROR', `Failed to get public coupons: ${error.message}`);
     }
   }
+
+  // Add this method to your CouponService class in couponService.js
+
+/**
+ * Delete coupon (Admin only)
+ */
+async deleteCoupon(id) {
+  try {
+    logger.info('Deleting coupon', { couponId: id });
+
+    // Find the coupon first
+    const coupon = await couponModel.findCouponById(id);
+    if (!coupon) {
+      throw new AppError('NOT_FOUND', 'Coupon not found');
+    }
+
+    // Check if coupon has been used
+    if (coupon.usedCount > 0) {
+      throw new AppError('COUPON_IN_USE', 'Cannot delete coupon that has been used. Please deactivate it instead.');
+    }
+
+    // Delete the coupon
+    const deletedCoupon = await couponModel.deleteCoupon(id);
+
+    logger.info('Coupon deleted successfully', { couponId: id });
+
+    return deletedCoupon;
+
+  } catch (error) {
+    logger.error('Failed to delete coupon', { error: error.message, couponId: id });
+
+    if (error instanceof AppError) {
+      throw error;
+    }
+
+    throw new AppError('COUPON_DELETION_ERROR', `Failed to delete coupon: ${error.message}`);
+  }
+}
 }
 
 export const couponService = new CouponService();

@@ -225,11 +225,12 @@ model Coupon {
 }
 
 model CouponUsage {
-  id        Int      @id @default(autoincrement())
-  couponId  Int
-  userId    Int
-  orderId   Int
-  usedAt    DateTime @default(now())
+  id            Int      @id @default(autoincrement())
+  couponId      Int
+  userId        Int
+  orderId       Int
+  discountAmount Float?   // Add this line - make it optional with ?
+  usedAt        DateTime @default(now())
 
   coupon Coupon @relation(fields: [couponId], references: [id], onDelete: Cascade)
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -239,7 +240,6 @@ model CouponUsage {
   @@unique([orderId])
   @@map("coupon_usages")
 }
-
 // ======================
 // ORDER MANAGEMENT
 // ======================
@@ -249,25 +249,28 @@ model Order {
   userId              Int
   totalAmount         Float
   subtotalAmount      Float
-
-  // 🔥 ADD THESE CURRENCY FIELDS
+  
+  // 🔥 CURRENCY & AMOUNT FIELDS
   currency            String           @default("USD")
   baseCurrency        String           @default("USD")
   exchangeRate        Float            @default(1.0)
   originalAmount      Float?          
+  shippingCost        Float            @default(0)
+  taxAmount           Float            @default(0)
+  taxRate             Float            @default(0)
+  
+  // 🔥 PAYMENT STATUS FIELDS
   paymentStatus       PaymentStatus    @default(PENDING)
   fulfillmentStatus   FulfillmentStatus @default(PLACED)
-
-  // 🔥 ADD THESE PAYMENT FIELDS
-  paidAt              DateTime?        // Add payment timestamp
-  paymentError        String?          // Add payment error message
+  paidAt              DateTime?        // Payment timestamp
+  paymentError        String?          // Payment error message
   
-  // Razorpay fields
+  // 🔥 RAZORPAY FIELDS
   razorpayOrderId     String?          @unique
   razorpayPaymentId   String?          @unique
   razorpayRefundId    String?          @unique
   
-  // Shipping & Tracking
+  // 🔥 SHIPPING & TRACKING
   shippingAddress     Json?
   trackingNumber      String?
   trackingUrl         String?
@@ -275,18 +278,18 @@ model Order {
   shipmentDate        DateTime?
   estimatedDelivery   DateTime?
   
-  // Printify integration
+  // 🔥 PRINTIFY INTEGRATION
   printifyOrderId     String?          @unique
   printifyStatus      String?
   orderImage          String?
   orderNotes          String?
   
-  // Coupon fields
+  // 🔥 COUPON FIELDS
   couponCode          String?
   discountAmount      Float?           @default(0)
   couponId            Int?
   
-  // Cancellation & Refund
+  // 🔥 CANCELLATION & REFUND
   cancelledAt         DateTime?
   cancellationReason String?
   cancelledBy         String?
@@ -295,11 +298,11 @@ model Order {
   refundRequestedAt   DateTime?
   refundProcessedAt   DateTime?
   
-  // Timestamps
+  // 🔥 TIMESTAMPS
   createdAt           DateTime         @default(now())  
   updatedAt           DateTime?        @updatedAt
 
-  // Relations
+  // 🔥 RELATIONS
   user        User       @relation(fields: [userId], references: [id], onDelete: Cascade)
   items       OrderItem[]
   couponUsage CouponUsage?

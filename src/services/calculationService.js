@@ -1,114 +1,342 @@
 // src/services/calculationService.js
-import currencyService from './currencyService.js';
+import { taxService } from './taxService.js';
+import printifyShippingService from './printifyShippingService.js';
+import { couponService } from './couponService.js';
+import prisma from '../config/prisma.js';
 
 export class CalculationService {
-  
-  async calculateCartTotals(cartItems, shippingAddress, couponCode = '') {
+  /**
+   * MAIN METHOD: Calculate complete order totals with real-time shipping, tax, and coupon
+   */
+  async calculateOrderTotals(cartItems, shippingAddress, couponCode = '', userId = null) {
     try {
-      // 1. Calculate in base currency (USD)
-      const baseCalculations = await this.calculateBaseTotals(cartItems, shippingAddress, couponCode);
+      console.log('🔄 CALCULATION STARTED - Real-time shipping, tax & coupon');
       
-      // 2. Get user's preferred currency
-      const userCurrency = currencyService.getUserCurrencyFromCountry(shippingAddress.country);
-      
-      // 3. Convert all amounts to user's currency
-      const userCalculations = await currencyService.convertOrderCalculations(baseCalculations, userCurrency);
-      
+      // Validate inputs
+      if (!cartItems || !Array.isArray(cartItems) || cartItems.length === 0) {
+        throw new Error('Cart items are required');
+      }
+
+      if (!shippingAddress || !shippingAddress.country) {
+        throw new Error('Shipping address with country is required');
+      }
+
+      // Step 1: Calculate subtotal
+      const subtotal = this.calculateSubtotal(cartItems);
+      console.log('💰 Subtotal:', subtotal);
+
+      // Step 2: Get real-time Printify shipping cost
+      const shippingResult = await this.getRealTimeShipping(cartItems, shippingAddress);
+      console.log('🚚 Shipping Result:', shippingResult);
+
+      // Step 3: Calculate tax
+      const taxResult = await this.calculateTaxAmount(cartItems, subtotal, shippingResult.totalShipping, shippingAddress);
+      console.log('🧾 Tax Result:', taxResult);
+
+      // Step 4: Validate and apply coupon
+      const couponResult = await this.applyCoupon(cartItems, subtotal, couponCode, userId, shippingAddress.country);
+      console.log('🎫 Coupon Result:', couponResult);
+
+      // Step 5: Calculate final totals
+      const finalTotals = this.calculateFinalTotals(
+        subtotal, 
+        shippingResult.totalShipping, 
+        taxResult.taxAmount, 
+        couponResult.discountAmount
+      );
+
+      console.log('✅ Final Totals:', finalTotals);
+
       return {
         success: true,
-        currency: userCurrency,
-        amounts: {
-          // Base currency amounts (USD)
-          subtotalBase: baseCalculations.subtotal,
-          shippingBase: baseCalculations.shipping,
-          taxBase: baseCalculations.tax,
-          discountBase: baseCalculations.discount,
-          totalBase: baseCalculations.finalTotal,
-          
-          // User currency amounts
-          subtotalUser: userCalculations.subtotal,
-          shippingUser: userCalculations.shipping,
-          taxUser: userCalculations.tax,
-          discountUser: userCalculations.discount,
-          totalUser: userCalculations.finalTotal
-        },
-        breakdown: {
-          taxRate: baseCalculations.taxRate,
-          discount: baseCalculations.discount,
-          currency: userCurrency,
-          country: shippingAddress.country
+        data: {
+          ...finalTotals,
+          breakdown: {
+            subtotal: finalTotals.subtotal,
+            shipping: finalTotals.shipping,
+            tax: finalTotals.tax,
+            taxRate: taxResult.taxRate,
+            discount: finalTotals.discount,
+            couponCode: couponResult.couponCode,
+            couponMessage: couponResult.message,
+            isFreeShipping: shippingResult.isFree,
+            shippingMessage: shippingResult.message,
+            currency: 'USD'
+          },
+          shippingDetails: {
+            cost: finalTotals.shipping,
+            isFree: shippingResult.isFree,
+            originalCost: shippingResult.originalShipping,
+            freeShippingThreshold: shippingResult.freeShippingThreshold,
+            amountNeeded: shippingResult.amountNeeded,
+            estimatedDays: shippingResult.estimatedDays,
+            progress: shippingResult.progress
+          },
+          taxDetails: {
+            rate: taxResult.taxRate,
+            amount: finalTotals.tax,
+            country: shippingAddress.country,
+            appliesToShipping: taxResult.appliesToShipping
+          },
+          couponDetails: {
+            code: couponResult.couponCode,
+            discountAmount: finalTotals.discount,
+            discountType: couponResult.discountType,
+            message: couponResult.message,
+            isValid: couponResult.isValid
+          }
         }
       };
-      
+
     } catch (error) {
       console.error('❌ Calculation error:', error);
       return {
         success: false,
-        message: 'Failed to calculate totals',
-        error: error.message
+        message: error.message,
+        data: null
       };
     }
   }
 
-  async calculateBaseTotals(cartItems, shippingAddress, couponCode) {
-    // Calculate subtotal in USD
-    const subtotal = cartItems.reduce((sum, item) => {
-      return sum + (parseFloat(item.price) * parseInt(item.quantity));
+  /**
+   * Calculate subtotal from cart items
+   */
+  calculateSubtotal(cartItems) {
+    return cartItems.reduce((total, item) => {
+      const price = parseFloat(item.price) || 0;
+      const quantity = parseInt(item.quantity) || 1;
+      return total + (price * quantity);
     }, 0);
+  }
 
-    // Calculate shipping (in USD)
-    const shipping = await this.calculateShipping(subtotal, shippingAddress);
+  /**
+   * Get real-time shipping cost from Printify
+   */
+  async getRealTimeShipping(cartItems, shippingAddress) {
+    try {
+      const validatedItems = cartItems.map(item => ({
+        productId: parseInt(item.productId),
+        variantId: parseInt(item.variantId),
+        quantity: parseInt(item.quantity) || 1,
+        price: parseFloat(item.price) || 0,
+        name: item.name || `Product ${item.productId}`
+      }));
+
+      const shippingData = await printifyShippingService.calculateCartShipping(
+        validatedItems,
+        shippingAddress.country,
+        shippingAddress.region || null
+      );
+
+      return {
+        totalShipping: this.roundCurrency(shippingData.totalShipping || 0),
+        originalShipping: this.roundCurrency(shippingData.originalShipping || shippingData.totalShipping || 0),
+        isFree: shippingData.isFree || false,
+        freeShippingThreshold: shippingData.freeShippingThreshold || 50,
+        amountNeeded: this.roundCurrency(shippingData.amountNeeded || 0),
+        progress: shippingData.progress || 0,
+        estimatedDays: shippingData.estimatedDays || { min: 7, max: 14 },
+        message: shippingData.message || 'Shipping calculated',
+        items: shippingData.items || []
+      };
+
+    } catch (error) {
+      console.error('❌ Shipping calculation failed, using fallback:', error);
+      return this.getFallbackShipping(cartItems, shippingAddress.country);
+    }
+  }
+
+  /**
+   * Calculate tax amount
+   */
+  async calculateTaxAmount(cartItems, subtotal, shippingCost, shippingAddress) {
+    try {
+      const taxData = {
+        items: cartItems.map(item => ({
+          productId: parseInt(item.productId),
+          price: parseFloat(item.price) || 0,
+          quantity: parseInt(item.quantity) || 1
+        })),
+        shippingAddress: shippingAddress,
+        subtotal: subtotal,
+        shippingCost: shippingCost
+      };
+
+      const taxResult = await taxService.calculateTax(taxData);
+
+      if (taxResult.success && taxResult.data) {
+        return {
+          taxAmount: this.roundCurrency(taxResult.data.taxAmount || 0),
+          taxRate: taxResult.data.taxRate || 0,
+          appliesToShipping: taxResult.data.appliesToShipping || false
+        };
+      } else {
+        throw new Error(taxResult.message || 'Tax calculation failed');
+      }
+
+    } catch (error) {
+      console.error('❌ Tax calculation failed, using fallback:', error);
+      return this.getFallbackTax(subtotal, shippingAddress.country);
+    }
+  }
+
+  /**
+   * Apply coupon discount
+   */
+async applyCoupon(cartItems, subtotal, couponCode, userId, country) {
+  try {
+    if (!couponCode || couponCode.trim() === '') {
+      return {
+        discountAmount: 0,
+        couponCode: null,
+        message: 'No coupon applied',
+        isValid: true,
+        discountType: null
+      };
+    }
+
+    // Get products for coupon validation
+    const productIds = cartItems.map(item => parseInt(item.productId));
+    const products = await prisma.product.findMany({
+      where: { id: { in: productIds } }
+    });
+
+    const validationItems = cartItems.map(item => {
+      const product = products.find(p => p.id === parseInt(item.productId));
+      return {
+        productId: parseInt(item.productId),
+        variantId: parseInt(item.variantId),
+        quantity: parseInt(item.quantity) || 1,
+        price: parseFloat(item.price) || 0,
+        product: product
+      };
+    });
+
+    const couponValidation = await couponService.validateCoupon(
+      couponCode.trim(),
+      userId,
+      validationItems,
+      subtotal,
+      country
+    );
+
+    console.log('🔍 COUPON VALIDATION DEBUG:', {
+      isValid: couponValidation.isValid,
+      couponObject: couponValidation.coupon
+    });
+
+    let finalDiscount = 0;
+    let message = 'No coupon applied';
     
-    // Calculate tax (in USD)
-    const taxRate = await this.getTaxRate(shippingAddress);
-    const tax = subtotal * (taxRate / 100);
-    
-    // Apply coupon discount (in USD)
-    const discount = await this.applyCouponDiscount(subtotal, couponCode, cartItems);
-    
-    const finalTotal = subtotal + shipping + tax - discount;
-    
+    if (couponValidation.isValid && couponValidation.coupon) {
+      // 🔥 CORRECT: Get discount from coupon object
+      finalDiscount = couponValidation.coupon.discountAmount || 0;
+      message = finalDiscount > 0 ? 
+        `Coupon applied successfully - $${finalDiscount} discount` : 
+        'Coupon valid but no discount applicable';
+    } else {
+      message = couponValidation.error || 'Invalid coupon';
+    }
+
     return {
-      subtotal: Number(subtotal.toFixed(2)),
-      shipping: Number(shipping.toFixed(2)),
-      tax: Number(tax.toFixed(2)),
-      discount: Number(discount.toFixed(2)),
-      finalTotal: Number(finalTotal.toFixed(2)),
-      taxRate: Number(taxRate.toFixed(2))
+      discountAmount: this.roundCurrency(finalDiscount),
+      couponCode: couponValidation.coupon?.code || couponCode,
+      message: message,
+      isValid: couponValidation.isValid,
+      discountType: couponValidation.coupon?.discountType
+    };
+
+  } catch (error) {
+    console.error('❌ Coupon application failed:', error);
+    return {
+      discountAmount: 0,
+      couponCode: couponCode,
+      message: 'Coupon validation failed',
+      isValid: false,
+      discountType: null
+    };
+  }
+}
+
+  /**
+   * Calculate final totals
+   */
+  calculateFinalTotals(subtotal, shipping, tax, discount) {
+    // Calculate taxable amount (subtotal - discount)
+    const taxableAmount = Math.max(0, subtotal - discount);
+    
+    // Final total = (Subtotal - Discount) + Shipping + Tax
+    const finalTotal = taxableAmount + shipping + tax;
+
+    return {
+      subtotal: this.roundCurrency(subtotal),
+      shipping: this.roundCurrency(shipping),
+      tax: this.roundCurrency(tax),
+      discount: this.roundCurrency(discount),
+      finalTotal: this.roundCurrency(finalTotal),
+      taxableAmount: this.roundCurrency(taxableAmount)
     };
   }
 
-  async calculateShipping(subtotal, address) {
-    // Your existing shipping logic here
-    // Example: Free shipping over $100, otherwise $10
-    if (subtotal >= 100) {
-      return 0;
-    }
-    return 10.00;
+  /**
+   * Round to 2 decimal places for currency - FIXED VERSION
+   */
+  roundCurrency(amount) {
+    return Math.round((amount + Number.EPSILON) * 100) / 100;
   }
 
-  async getTaxRate(address) {
-    // Your existing tax logic here
-    // Example: Different tax rates by country
+  /**
+   * Fallback shipping calculation
+   */
+  getFallbackShipping(cartItems, country) {
+    const subtotal = this.calculateSubtotal(cartItems);
+    const isFree = subtotal >= 50;
+    const baseShipping = this.getBaseShippingRate(country);
+    const shippingCost = isFree ? 0 : baseShipping;
+
+    return {
+      totalShipping: this.roundCurrency(shippingCost),
+      originalShipping: this.roundCurrency(baseShipping),
+      isFree: isFree,
+      freeShippingThreshold: 50,
+      amountNeeded: this.roundCurrency(Math.max(0, 50 - subtotal)),
+      progress: Math.min(100, (subtotal / 50) * 100),
+      estimatedDays: { min: 7, max: 14 },
+      message: isFree ? '🎉 Free shipping applied!' : `Add $${(50 - subtotal).toFixed(2)} for free shipping!`,
+      items: []
+    };
+  }
+
+  /**
+   * Get base shipping rate by country
+   */
+  getBaseShippingRate(country) {
+    const rates = {
+      'US': 5.99, 'IN': 5.99, 'CA': 8.99, 'GB': 6.99, 'AU': 12.99,
+      'DE': 7.99, 'FR': 7.99, 'IT': 7.99, 'ES': 7.99, 'JP': 9.99,
+      'default': 9.99
+    };
+    return rates[country] || rates.default;
+  }
+
+  /**
+   * Fallback tax calculation
+   */
+  getFallbackTax(subtotal, country) {
     const taxRates = {
-      'US': 8.5, 'IN': 18, 'GB': 20, 'CA': 13, 'AU': 10,
-      'DE': 19, 'FR': 20, 'IT': 22, 'ES': 21, 'NL': 21,
-      'JP': 10, 'CN': 13, 'BR': 17, 'MX': 16
+      'US': 0.085, 'IN': 0.18, 'CA': 0.13, 'GB': 0.20, 'DE': 0.19,
+      'FR': 0.20, 'IT': 0.22, 'ES': 0.21, 'AU': 0.10, 'JP': 0.10,
+      'default': 0.10
     };
     
-    return taxRates[address.country] || 10; // Default 10%
-  }
+    const taxRate = taxRates[country] || taxRates.default;
+    const taxAmount = subtotal * taxRate;
 
-  async applyCouponDiscount(subtotal, couponCode, cartItems) {
-    if (!couponCode) return 0;
-    
-    // Your existing coupon logic here
-    // Example: 10% discount for "WELCOME10"
-    if (couponCode === 'WELCOME10') {
-      return subtotal * 0.1;
-    }
-    
-    return 0;
+    return {
+      taxAmount: this.roundCurrency(taxAmount),
+      taxRate: taxRate,
+      appliesToShipping: false
+    };
   }
 }
 

@@ -284,84 +284,108 @@ export function getWelcomeEmail(name, verificationUrl = null) {
     <head>
       <meta charset="utf-8">
       <meta name="viewport" content="width=device-width, initial-scale=1.0">
-      <title>Welcome to Agumiya Collections!</title>
+      <title>Hey there! Welcome to Agumiya Collections 🤍</title>
       <style>
-        body { font-family: 'Arial', sans-serif; line-height: 1.6; color: #333; margin: 0; padding: 0; background: #f9f9f9; }
-        .container { max-width: 600px; margin: 0 auto; padding: 20px; }
-        .header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 40px 20px; text-align: center; border-radius: 10px 10px 0 0; }
-        .content { background: white; padding: 40px; border-radius: 0 0 10px 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
-        .button { display: inline-block; padding: 14px 28px; background: #007bff; color: white; text-decoration: none; border-radius: 6px; font-weight: 600; font-size: 16px; margin: 20px 0; }
-        .features { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin: 25px 0; }
-        .feature { text-align: center; padding: 15px; background: #f8f9fa; border-radius: 8px; }
-        .footer { margin-top: 30px; padding: 20px; background: #f8f9fa; text-align: center; font-size: 12px; color: #6c757d; border-radius: 8px; }
-        
-        /* Mobile Styles */
+        body {
+          font-family: 'Arial', sans-serif;
+          line-height: 1.6;
+          color: #333;
+          margin: 0;
+          padding: 0;
+          background: #f5f5f7;
+        }
+        .container {
+          max-width: 600px;
+          margin: 0 auto;
+          padding: 20px;
+        }
+        .header {
+          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+          color: white;
+          padding: 40px 20px;
+          text-align: center;
+          border-radius: 10px 10px 0 0;
+        }
+        .content {
+          background: white;
+          padding: 40px 30px;
+          border-radius: 0 0 10px 10px;
+          box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+        }
+        .button {
+          display: inline-block;
+          padding: 14px 28px;
+          background: #28a745;
+          color: white !important;
+          text-decoration: none;
+          border-radius: 6px;
+          font-weight: 600;
+          font-size: 16px;
+          margin: 20px 0;
+          transition: background 0.3s ease;
+        }
+        .button:hover {
+          background: #218838;
+        }
+        .footer {
+          margin-top: 30px;
+          padding: 20px;
+          background: #f8f9fa;
+          text-align: center;
+          font-size: 12px;
+          color: #6c757d;
+          border-radius: 8px;
+        }
         @media only screen and (max-width: 600px) {
           .container { padding: 10px; }
           .header { padding: 30px 15px; }
           .content { padding: 25px 20px; }
-          .features { grid-template-columns: 1fr; gap: 10px; }
-          .button { display: block; padding: 12px 20px; text-align: center; margin: 15px 0; }
+          .button { display: block; text-align: center; margin: 15px auto; }
         }
       </style>
     </head>
     <body>
       <div class="container">
         <div class="header">
-          <h1 style="margin: 0; font-size: 32px;">🎉 Welcome to Agumiya Collections!</h1>
-          <p style="margin: 10px 0 0 0; opacity: 0.9;">We're thrilled to have you join our community</p>
+          <h1 style="margin: 0; font-size: 30px;">Hey there! Welcome to Agumiya Collections 🤍</h1>
         </div>
-        
+
         <div class="content">
-          <h2 style="color: #333; margin-top: 0;">Hello ${name},</h2>
-          
-          <p>Thank you for registering with <strong>Agumiya Collections</strong>! We're excited to have you as part of our fashion community.</p>
-             
-          <div class="features">
-            <div class="feature">
-              <div style="font-size: 24px; margin-bottom: 10px;">🚚</div>
-              <strong>Fast Shipping</strong>
-              <p style="margin: 5px 0 0 0; font-size: 12px;">Free shipping on orders over $50</p>
-            </div>
-            <div class="feature">
-              <div style="font-size: 24px; margin-bottom: 10px;">💎</div>
-              <strong>Premium Quality</strong>
-              <p style="margin: 5px 0 0 0; font-size: 12px;">Handpicked collections</p>
-            </div>
-            <div class="feature">
-              <div style="font-size: 24px; margin-bottom: 10px;">🔒</div>
-              <strong>Secure Shopping</strong>
-              <p style="margin: 5px 0 0 0; font-size: 12px;">Your data is protected</p>
-            </div>
-            <div class="feature">
-              <div style="font-size: 24px; margin-bottom: 10px;">💝</div>
-              <strong>Exclusive Offers</strong>
-              <p style="margin: 5px 0 0 0; font-size: 12px;">Member-only discounts</p>
-            </div>
+          <h2 style="margin-top: 0;">Hi ${name},</h2>
+
+          <p>We’re so happy to have you here!</p>
+          <p>At <strong>Agumiya Collections</strong>, it’s all about feeling confident and being yourself.</p>
+
+          <div style="background: #f1f5ff; border-left: 5px solid #667eea; padding: 15px 20px; border-radius: 6px; margin: 25px 0;">
+            <p style="margin: 0; font-size: 15px;">
+              To get you started, here’s a little something — 
+              <strong style="color:#764ba2;">10% off your first order</strong> with code 
+              <strong style="background:#f8f9fa; padding:3px 6px; border-radius:4px;">WELCOME10 🎁</strong>
+            </p>
           </div>
-          
-          <div style="text-align: center; margin: 25px 0;">
-            <a href="${process.env.CLIENT_URL}/shop" class="button" style="background: #28a745;">Start Shopping Now</a>
+
+          <p>Take a look around and find what feels <em>you</em>.</p>
+
+          <div style="text-align: center;">
+            <a href="${process.env.CLIENT_URL}/shop" class="button">👉 Shop Now</a>
           </div>
-          
-          <p><strong>Get ready to explore:</strong></p>
-          <ul>
-            <li>Latest fashion trends and collections</li>
-            <li>Exclusive member discounts and early access</li>
-            <li>Personalized shopping recommendations</li>
-            <li>Fast and reliable delivery</li>
-          </ul>
+
+          <p style="margin-top: 30px;">With love,<br>
+          <strong>Agumiya Collections 🤍</strong></p>
         </div>
-        
+
         <div class="footer">
           <p>© ${new Date().getFullYear()} Agumiya Collections. All rights reserved.</p>
-          <p>This is an automated welcome message. Need help? Contact us at <a href="mailto:support@agumiyacollections.com" style="color: #6c757d;">support@agumiyacollections.com</a></p>
+          <p>Need help? Contact us at 
+            <a href="mailto:support@agumiyacollections.com" style="color: #6c757d;">support@agumiyacollections.com</a>
+          </p>
         </div>
       </div>
     </body>
     </html>
   `;
 }
+
 
 // =============================================================================
 // ORDER MANAGEMENT EMAILS
@@ -371,17 +395,20 @@ export function getWelcomeEmail(name, verificationUrl = null) {
  * Order Confirmation Email
  */
 
-
 export async function getOrderConfirmationEmail(order) {
   if (!order || !order.items) {
     console.error('Invalid order data in getOrderConfirmationEmail:', order);
-    return getFallbackOrderConfirmationEmail(order);
+    return '';
   }
 
   const userCurrency = order.currency || 'USD';
   const currencySymbol = getCurrencySymbol(userCurrency);
+  
+  // ✅ USE SAME LOGIC AS ADMIN EMAIL FOR CONSISTENCY
+  const roundAmount = (amount) => {
+    return Math.round(parseFloat(amount || 0));
+  };
 
-  // ✅ CORRECT CONVERSION FUNCTION
   const convertToLocal = (usdAmount) => {
     if (userCurrency === 'USD') return usdAmount;
     const exchangeRate = order.exchangeRate || 83;
@@ -389,148 +416,74 @@ export async function getOrderConfirmationEmail(order) {
   };
 
   const formatPrice = (amount) => {
-    // ✅ ROUND THE AMOUNT FIRST
-    const roundedAmount = roundAmount(amount);
-    return parseFloat(roundedAmount).toLocaleString('en-IN', {
+    return parseFloat(amount || 0).toLocaleString('en-IN', {
       minimumFractionDigits: 2,
-      maximumFractionDigits: 2
+      maximumFractionDigits: 2,
     });
   };
 
-  // ✅ CORRECT AMOUNTS WITH ROUNDING
-  const localTotal = formatPrice(order.totalAmount);
-  const localSubtotal = formatPrice(convertToLocal(order.subtotalAmount || 0));
+  // ✅ CORRECT CALCULATIONS (Same as admin email)
+  const localTotal = formatPrice(roundAmount(order.totalAmount));
+  const localSubtotal = formatPrice(roundAmount(convertToLocal(order.subtotalAmount || 0)));
   const shippingCost = order.shipping?.shippingCost || order.shippingCost || 0;
-  const localShipping = formatPrice(convertToLocal(shippingCost));
-  const localTax = formatPrice(convertToLocal(order.taxAmount || 0));
-  const localDiscount = formatPrice(convertToLocal(order.discountAmount || 0));
+  const localShipping = formatPrice(roundAmount(convertToLocal(shippingCost)));
+  const localTax = formatPrice(roundAmount(convertToLocal(order.taxAmount || 0)));
+  const localDiscount = formatPrice(roundAmount(convertToLocal(order.discountAmount || 0)));
 
-  // ✅ ADD AMOUNT BREAKDOWN SECTION WITH ROUNDED AMOUNTS
+  const orderNumber = order.id;
+
+  // ✅ AMOUNT BREAKDOWN SECTION (Same structure as admin email)
   const amountBreakdown = `
-    <div style="margin-top: 20px; padding: 20px; background: #f0f8ff; border-radius: 8px; border-left: 4px solid #667eea;">
-      <h4 style="margin: 0 0 15px 0; color: #333; font-size: 16px;">💰 Order Amount Details</h4>
-      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; font-size: 14px;">
+    <div style="margin-top: 15px; padding: 15px; background: #f8f9fa; border-radius: 6px; border: 1px solid #ddd;">
+      <h4 style="margin: 0 0 12px 0; color: #333; font-size: 16px;">💰 Order Amount Details</h4>
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 14px;">
         <div><strong>Subtotal:</strong></div>
         <div style="text-align: right;">${currencySymbol}${localSubtotal}</div>
         
-        <div><strong>Shipping Cost:</strong></div>
+        <div><strong>Shipping:</strong></div>
         <div style="text-align: right;">${currencySymbol}${localShipping}</div>
         
         <div><strong>Tax:</strong></div>
         <div style="text-align: right;">${currencySymbol}${localTax}</div>
         
-        ${order.discountAmount > 0 ? `
-          <div><strong style="color: #28a745;">Discount:</strong></div>
-          <div style="text-align: right; color: #28a745;">-${currencySymbol}${localDiscount}</div>
-        ` : ''}
+        ${
+          (order.discountAmount || 0) > 0
+            ? `
+          <div><strong style="color: #dc3545;">Discount:</strong></div>
+          <div style="text-align: right; color: #dc3545;">-${currencySymbol}${localDiscount}</div>
+        `
+            : ''
+        }
         
-        <div style="border-top: 2px solid #667eea; padding-top: 12px; margin-top: 8px; font-weight: bold; font-size: 16px;">Total Amount:</div>
-        <div style="border-top: 2px solid #667eea; padding-top: 12px; margin-top: 8px; text-align: right; font-weight: bold; font-size: 16px; color: #667eea;">
+        <div style="border-top: 2px solid #667eea; padding-top: 10px; margin-top: 5px; font-weight: bold; font-size: 16px;">Total Amount:</div>
+        <div style="border-top: 2px solid #667eea; padding-top: 10px; margin-top: 5px; text-align: right; font-weight: bold; font-size: 16px; color: #667eea;">
           ${currencySymbol}${localTotal}
         </div>
       </div>
     </div>
   `;
 
-  // Add currency conversion note
-  const currencyNote = userCurrency !== 'USD' ? `
-    <div style="margin-top: 10px; padding: 10px; background: #f0f8ff; border-radius: 5px; border-left: 4px solid #667eea;">
-      <small>
-        <strong>💱 Currency Note:</strong> 
-        Prices converted from USD to ${userCurrency} at rate: 1 USD = ${order.exchangeRate || 83} ${userCurrency}
-      </small>
-    </div>
-  ` : '';
+  // ✅ ITEMS LIST (compact and readable)
+  const itemsHtml = order.items
+    .map((item) => {
+      const convertedPrice = convertToLocal(item.price || 0);
+      const itemTotal = formatPrice(roundAmount(convertedPrice * (item.quantity || 1)));
+      const productImage = item.product?.images?.[0] || '/images/placeholder-product.jpg';
+      const productName = item.product?.name || 'Product';
+      const qty = item.quantity || 1;
 
-  // Mobile-friendly items list
-  const mobileItemsHtml = await Promise.all(order.items.map(async (item, index) => {
-    if (!item) return '';
-    
-    const convertedPrice = convertToLocal(item.price || 0);
-    // ✅ ROUND THE ITEM TOTAL PROPERLY
-    const itemTotal = roundAmount(convertedPrice * (item.quantity || 1));
-    const productDetails = formatProductDetails(item);
-    const productImage = item.product?.images?.[0] || '/images/placeholder-product.jpg';
-    const productName = item.product?.name || 'Product';
-    
-    return `
-      <div class="mobile-order-item" style="border-bottom: 1px solid #eee; padding: 15px 0; ${index === order.items.length - 1 ? 'border-bottom: none;' : ''}">
-        <div style="display: flex; gap: 12px;">
-          <img src="${productImage}" alt="${productName}" width="60" style="border-radius: 6px; border: 1px solid #f0f0f0; flex-shrink: 0;">
-          <div style="flex: 1;">
-            <strong style="color: #333; display: block; margin-bottom: 5px;">${productName}</strong>
-            ${productDetails}
-            <div style="margin-top: 8px; color: #666; font-size: 14px;">
-              <span>Qty: ${item.quantity || 1}</span> • 
-              <span>Price: ${currencySymbol}${formatPrice(convertedPrice)}</span>
-            </div>
-            <div style="margin-top: 4px; color: #666; font-size: 14px;">
-              <strong>Item Total: ${currencySymbol}${formatPrice(itemTotal)}</strong>
-            </div>
-            ${userCurrency !== 'USD' ? `
-              <div style="margin-top: 4px; color: #888; font-size: 12px;">
-                <em>Originally: $${formatPrice(item.price || 0)} USD</em>
-              </div>
-            ` : ''}
+      return `
+        <div class="order-item">
+          <img src="${productImage}" alt="${productName}" class="item-image" />
+          <div class="item-info">
+            <div class="item-name">${productName}</div>
+            <div class="item-meta">Qty: ${qty}</div>
+            <div class="item-price">${currencySymbol}${itemTotal}</div>
           </div>
         </div>
-      </div>
-    `;
-  }));
-
-  // Desktop table items - WITH PROPERLY ROUNDED PRICES
-  const desktopItemsHtml = await Promise.all(order.items.map(async (item) => {
-    if (!item) return '';
-    
-    const convertedPrice = convertToLocal(item.price || 0);
-    // ✅ ROUND THE ITEM TOTAL PROPERLY
-    const itemTotal = roundAmount(convertedPrice * (item.quantity || 1));
-    const productDetails = formatProductDetails(item);
-    const productImage = item.product?.images?.[0] || '/images/placeholder-product.jpg';
-    const productName = item.product?.name || 'Product';
-
-    return `
-      <tr>
-        <td style="padding: 15px; border-bottom: 1px solid #eee; text-align: center; width: 80px;" class="mobile-hide">
-          <img src="${productImage}" alt="${productName}" width="70" style="border-radius: 8px; border: 1px solid #f0f0f0;">
-        </td>
-        <td style="padding: 15px; border-bottom: 1px solid #eee;">
-          <strong style="color: #333;">${productName}</strong>
-          ${productDetails}
-          ${userCurrency !== 'USD' ? `
-            <div style="margin-top: 4px; color: #888; font-size: 12px;">
-              <em>Originally: $${formatPrice(item.price || 0)} USD</em>
-            </div>
-          ` : ''}
-        </td>
-        <td style="padding: 15px; border-bottom: 1px solid #eee; text-align: center; width: 60px;" class="mobile-hide">${item.quantity || 1}</td>
-        <td style="padding: 15px; border-bottom: 1px solid #eee; text-align: right; width: 100px;" class="mobile-hide">${currencySymbol}${formatPrice(convertedPrice)}</td>
-        <td style="padding: 15px; border-bottom: 1px solid #eee; text-align: right; width: 100px;" class="mobile-hide">${currencySymbol}${formatPrice(itemTotal)}</td>
-      </tr>
-    `;
-  }));
-
-  // Helper functions
-  function responsiveTableWrapper(content) {
-    return `<div style="overflow-x: auto;">${content}</div>`;
-  }
-
-  function formatProductDetails(item) {
-    if (!item.product) return '';
-    
-    const details = [];
-    if (item.product.category) {
-      details.push(`<div style="color: #666; font-size: 14px;">${item.product.category}</div>`);
-    }
-    if (item.size) {
-      details.push(`<div style="color: #666; font-size: 14px;">Size: ${item.size}</div>`);
-    }
-    if (item.color) {
-      details.push(`<div style="color: #666; font-size: 14px;">Color: ${item.color}</div>`);
-    }
-    
-    return details.join('');
-  }
+      `;
+    })
+    .join('');
 
   return `
     <!DOCTYPE html>
@@ -538,192 +491,235 @@ export async function getOrderConfirmationEmail(order) {
     <head>
       <meta charset="utf-8">
       <meta name="viewport" content="width=device-width, initial-scale=1.0">
-      <title>Order Confirmation #${order.id} - Agumiya Collections</title>
+      <title>Your Agumiya Order is Confirmed! 🎉</title>
       <style>
-        body { 
-          font-family: 'Arial', sans-serif; 
-          line-height: 1.6; 
-          color: #333; 
-          margin: 0; 
-          padding: 0; 
-          background: #f9f9f9; 
+        body {
+          font-family: 'Arial', sans-serif;
+          line-height: 1.6;
+          color: #333;
+          margin: 0;
+          padding: 0;
+          background: #f5f5f7;
         }
-        .container { 
-          max-width: 600px; 
-          margin: 0 auto; 
-          padding: 20px; 
+        .container {
+          max-width: 600px;
+          margin: 0 auto;
+          padding: 20px;
         }
-        .header { 
-          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
-          color: white; 
-          padding: 40px 20px; 
-          text-align: center; 
-          border-radius: 10px 10px 0 0; 
+        .header {
+          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+          color: white;
+          padding: 40px 20px;
+          text-align: center;
+          border-radius: 10px 10px 0 0;
         }
-        .content { 
-          background: white; 
-          padding: 40px; 
-          border-radius: 0 0 10px 10px; 
-          box-shadow: 0 2px 10px rgba(0,0,0,0.1); 
+        .content {
+          background: white;
+          padding: 35px 30px;
+          border-radius: 0 0 10px 10px;
+          box-shadow: 0 4px 15px rgba(0,0,0,0.1);
         }
-        .order-section { 
-          background: #f8f9fa; 
-          padding: 25px; 
-          border-radius: 8px; 
-          margin: 20px 0; 
+        .order-summary {
+          background: #f9f9fb;
+          border-radius: 10px;
+          padding: 20px;
+          margin: 25px 0;
         }
-        table { 
-          width: 100%; 
-          border-collapse: collapse; 
+        .order-item {
+          display: flex;
+          align-items: flex-start;
+          gap: 15px;
+          border-bottom: 1px solid #eee;
+          padding: 12px 0;
         }
-        th { 
-          background: #f5f5f5; 
-          padding: 12px 15px; 
-          text-align: left; 
-          font-weight: 600; 
-          color: #555; 
+        .item-image {
+          width: 70px;
+          height: 70px;
+          border-radius: 8px;
+          object-fit: cover;
+          flex-shrink: 0;
+          border: 1px solid #f0f0f0;
         }
-        .status-badge { 
-          display: inline-block; 
-          padding: 6px 12px; 
-          background: #ffa500; 
-          color: white; 
-          border-radius: 20px; 
-          font-size: 12px; 
-          font-weight: 600; 
+        .item-info {
+          flex: 1;
         }
-        .footer { 
-          margin-top: 30px; 
-          padding: 20px; 
-          background: #f8f9fa; 
-          text-align: center; 
-          font-size: 12px; 
-          color: #6c757d; 
-          border-radius: 8px; 
+        .item-name {
+          font-weight: 600;
+          color: #333;
+          margin-bottom: 4px;
         }
-        
+        .item-meta {
+          font-size: 13px;
+          color: #777;
+          margin-bottom: 5px;
+        }
+        .item-price {
+          font-weight: bold;
+          color: #667eea;
+        }
+        .button {
+          display: inline-block;
+          padding: 14px 28px;
+          background: #28a745;
+          color: white !important;
+          text-decoration: none;
+          border-radius: 6px;
+          font-weight: 600;
+          font-size: 16px;
+          margin: 25px auto;
+          text-align: center;
+          transition: all 0.3s ease;
+        }
+        .button:hover {
+          background: #218838;
+          transform: translateY(-2px);
+          box-shadow: 0 4px 12px rgba(40, 167, 69, 0.3);
+        }
+        .footer {
+          margin-top: 30px;
+          padding: 20px;
+          background: #f8f9fa;
+          text-align: center;
+          font-size: 12px;
+          color: #6c757d;
+          border-radius: 8px;
+        }
+
+        /* ✅ IMPROVED Mobile Responsive Fixes */
         @media only screen and (max-width: 600px) {
-          .container { padding: 10px; }
-          .header { padding: 30px 15px; }
-          .content { padding: 25px 20px; }
-          .order-section { padding: 20px 15px; }
-          .mobile-hide { display: none !important; }
-          .mobile-stack { display: block !important; width: 100% !important; }
-          .responsive-table { width: 100% !important; min-width: 300px; }
+          .container { 
+            padding: 10px; 
+            width: 100% !important;
+          }
+          .header { 
+            padding: 30px 15px; 
+            font-size: 18px; 
+          }
+          .content { 
+            padding: 25px 20px; 
+          }
+          .order-item {
+            flex-direction: row;
+            align-items: center;
+            gap: 12px;
+          }
+          .item-image {
+            width: 60px;
+            height: 60px;
+          }
+          .item-info {
+            flex: 1;
+            min-width: 0; /* Prevents text overflow */
+          }
+          .item-name {
+            font-size: 14px;
+            word-wrap: break-word;
+          }
+          .item-meta {
+            font-size: 12px;
+          }
+          .item-price {
+            font-size: 14px;
+          }
+          /* ✅ FIXED BUTTON STYLES FOR MOBILE */
+          .button {
+            display: block !important;
+            width: 100% !important;
+            text-align: center;
+            margin: 20px 0 !important;
+            padding: 16px 20px !important;
+            font-size: 16px !important;
+            box-sizing: border-box;
+          }
+          /* ✅ Ensure button container is properly styled */
+          .button-container {
+            width: 100% !important;
+            display: block !important;
+          }
+        }
+
+        /* ✅ Additional mobile optimizations */
+        @media only screen and (max-width: 480px) {
+          .container {
+            padding: 5px;
+          }
+          .content {
+            padding: 20px 15px;
+          }
+          .order-summary {
+            padding: 15px;
+          }
+          .button {
+            padding: 18px 20px !important;
+            font-size: 17px !important;
+          }
+        }
+
+        /* ✅ Force responsive behavior for email clients */
+        .button-container {
+          text-align: center;
+          width: 100%;
         }
         
-        @media only screen and (min-width: 601px) {
-          .mobile-only { display: none !important; }
+        /* ✅ Prevent Outlook from breaking the button */
+        @media screen and (max-width: 600px) {
+          .button-container table {
+            width: 100% !important;
+          }
+          .button-container td {
+            display: block !important;
+            width: 100% !important;
+            text-align: center !important;
+          }
         }
       </style>
     </head>
     <body>
       <div class="container">
         <div class="header">
-          <h1 style="margin: 0; font-size: 32px;">🎉 Order Confirmed!</h1>
-          <p style="margin: 10px 0 0 0; opacity: 0.9;">Thank you for your purchase</p>
+          <h1>Your Agumiya Order is Confirmed! 🎉</h1>
         </div>
-        
+
         <div class="content">
-          <div style="text-align: center; margin-bottom: 25px;">
-            <span class="status-badge">ORDER #${order.id}</span>
-            <p style="margin: 10px 0; color: #666;">
-              <strong>Order Date:</strong> ${new Date(order.createdAt).toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
-            </p>
-            <p style="margin: 5px 0; color: #666;">
-              <strong>Currency:</strong> ${userCurrency} ${userCurrency !== 'USD' ? '(Converted from USD)' : ''}
-            </p>
-          </div>
+          <p>Hi ${order.user?.name || 'Customer'},</p>
+          <p>Great news! Your order with <strong>Agumiya Collections</strong> has been successfully placed ✅</p>
 
-          <div class="order-section">
-            <h3 style="color: #333; margin-top: 0; border-bottom: 2px solid #667eea; padding-bottom: 10px;">Order Summary</h3>
+          <div class="order-summary">
+            <p>📦 <strong>Order Number:</strong> ${orderNumber}</p>
+            <p>💰 <strong>Total Amount:</strong> ${currencySymbol}${localTotal}</p>
             
-            ${currencyNote}
-            
-            <!-- Mobile View -->
-            <div class="mobile-only">
-              ${mobileItemsHtml.join('')}
-              ${amountBreakdown}
+            <div style="margin-top:15px;">
+              <strong>🛒 Items Ordered:</strong>
+              ${itemsHtml}
             </div>
             
-            <!-- Desktop View -->
-            <div class="mobile-hide">
-              ${responsiveTableWrapper(`
-                <table class="responsive-table">
-                  <thead>
-                    <tr>
-                      <th style="width: 80px; text-align: center;">Image</th>
-                      <th>Product</th>
-                      <th style="width: 60px; text-align: center;">Qty</th>
-                      <th style="width: 100px; text-align: right;">Price (${userCurrency})</th>
-                      <th style="width: 100px; text-align: right;">Total (${userCurrency})</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    ${desktopItemsHtml.join('')}
-                  </tbody>
-                </table>
-              `)}
-              ${amountBreakdown}
-            </div>
+            ${amountBreakdown}
           </div>
 
-          ${order.shippingAddress ? `
-          <div class="order-section">
-            <h3 style="color: #333; margin-top: 0; border-bottom: 2px solid #667eea; padding-bottom: 10px;">Shipping Address</h3>
-            <p style="margin: 0;">
-              <strong>${order.shippingAddress.firstName} ${order.shippingAddress.lastName}</strong><br>
-              ${order.shippingAddress.address1}<br>
-              ${order.shippingAddress.address2 ? order.shippingAddress.address2 + '<br>' : ''}
-              ${order.shippingAddress.city}, ${order.shippingAddress.region} ${order.shippingAddress.zipCode}<br>
-              ${order.shippingAddress.country}<br>
-              📞 ${order.shippingAddress.phone}<br>
-              📧 ${order.shippingAddress.email}
-            </p>
-          </div>
-          ` : ''}
+          <p>We're getting your order ready and will notify you once it ships! 🚚✨</p>
+          <p>Thank you for choosing <strong>Agumiya Collections</strong> — we're excited for you to receive your new items! 🖤</p>
 
-          <div class="order-section">
-            <h3 style="color: #333; margin-top: 0; border-bottom: 2px solid #667eea; padding-bottom: 10px;">What's Next?</h3>
-            <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 15px; text-align: center;">
-              <div style="padding: 15px; background: white; border-radius: 8px;">
-                <div style="font-size: 24px; margin-bottom: 10px;">🏭</div>
-                <strong>Production</strong>
-                <p style="margin: 8px 0 0 0; font-size: 12px;">We start creating your products</p>
-              </div>
-              <div style="padding: 15px; background: white; border-radius: 8px;">
-                <div style="font-size: 24px; margin-bottom: 10px;">📦</div>
-                <strong>Shipping</strong>
-                <p style="margin: 8px 0 0 0; font-size: 12px;">We'll ship within 3-5 business days</p>
-              </div>
-              <div style="padding: 15px; background: white; border-radius: 8px;">
-                <div style="font-size: 24px; margin-bottom: 10px;">🎁</div>
-                <strong>Delivery</strong>
-                <p style="margin: 8px 0 0 0; font-size: 12px;">Receive your order in 5-10 days</p>
-              </div>
-            </div>
-          </div>
-
-          <div style="text-align: center; margin: 25px 0;">
-            <a href="${process.env.CLIENT_URL || 'https://yourapp.com'}/orders/${order.id}" 
-               style="display: inline-block; padding: 12px 24px; background: #667eea; color: white; text-decoration: none; border-radius: 6px; font-weight: 600;">
+          <!-- ✅ FIXED BUTTON CONTAINER -->
+          <div class="button-container" style="text-align: center; width: 100%;">
+            <a href="${process.env.CLIENT_URL || 'https://yourapp.com'}/orders/${order.id}" class="button" style="display: inline-block; padding: 14px 28px; background: #28a745; color: white; text-decoration: none; border-radius: 6px; font-weight: 600; font-size: 16px; margin: 25px auto; text-align: center;">
               Track Your Order
             </a>
           </div>
+
+          <p style="margin-top: 30px;">With love,<br><strong>Agumiya Collections Team 🤍</strong></p>
         </div>
-        
+
         <div class="footer">
-          <p>Thank you for shopping with Agumiya Collections!</p>
-          <p>If you have any questions, contact us at <a href="mailto:support@agumiyacollections.com">support@agumiyacollections.com</a></p>
           <p>© ${new Date().getFullYear()} Agumiya Collections. All rights reserved.</p>
+          <p>Need help? Contact us at 
+            <a href="mailto:support@agumiyacollections.com" style="color: #6c757d;">support@agumiyacollections.com</a>
+          </p>
         </div>
       </div>
     </body>
     </html>
   `;
 }
-
-
 
 /**
  * Payment Success Email
@@ -1151,11 +1147,6 @@ export async function getPaymentFailedEmail(order, errorMessage, userCurrency = 
                 <strong>Email Support</strong>
                 <p style="margin: 8px 0 0 0;"><a href="mailto:support@agumiyacollections.com">support@agumiyacollections.com</a></p>
               </div>
-              <div style="text-align: center;">
-                <div style="font-size: 24px; margin-bottom: 10px;">📞</div>
-                <strong>Phone Support</strong>
-                <p style="margin: 8px 0 0 0;">+1 (555) 123-4567</p>
-              </div>
             </div>
           </div>
 
@@ -1177,22 +1168,26 @@ export async function getPaymentFailedEmail(order, errorMessage, userCurrency = 
 /**
  * Admin New Order Notification (Responsive)
  */
-export async function getAdminNewOrderEmail(order, userCurrency = 'USD') {
-  const currencySymbol = getCurrencySymbol(order.currency || userCurrency);
+export async function getAdminNewOrderEmail(order) {
+  if (!order || !order.items) {
+    console.error('Invalid order data in getAdminNewOrderEmail:', order);
+    return '';
+  }
 
-  // ✅ Round to nearest full number
+  const userCurrency = order.currency || 'USD';
+  const currencySymbol = getCurrencySymbol(userCurrency);
+  
+  // ✅ USE SAME LOGIC AS ORDER CONFIRMATION EMAIL FOR CONSISTENCY
   const roundAmount = (amount) => {
     return Math.round(parseFloat(amount || 0));
   };
 
-  // ✅ Convert USD → Local Currency
   const convertToLocal = (usdAmount) => {
-    if (order.currency === 'USD') return usdAmount;
+    if (userCurrency === 'USD') return usdAmount;
     const exchangeRate = order.exchangeRate || 83;
     return (usdAmount || 0) * exchangeRate;
   };
 
-  // ✅ Format with 2 decimals (₹15 → ₹15.00)
   const formatPrice = (amount) => {
     return parseFloat(amount || 0).toLocaleString('en-IN', {
       minimumFractionDigits: 2,
@@ -1200,20 +1195,20 @@ export async function getAdminNewOrderEmail(order, userCurrency = 'USD') {
     });
   };
 
-  // ✅ Correct conversions + rounding
+  // ✅ CORRECT CALCULATIONS (Same as order confirmation email)
   const localTotal = formatPrice(roundAmount(order.totalAmount));
   const localSubtotal = formatPrice(roundAmount(convertToLocal(order.subtotalAmount || 0)));
-
   const shippingCost = order.shipping?.shippingCost || order.shippingCost || 0;
   const localShipping = formatPrice(roundAmount(convertToLocal(shippingCost)));
-
   const localTax = formatPrice(roundAmount(convertToLocal(order.taxAmount || 0)));
   const localDiscount = formatPrice(roundAmount(convertToLocal(order.discountAmount || 0)));
 
-  // ✅ Amount Breakdown Section
+  const orderNumber = order.id;
+
+  // ✅ AMOUNT BREAKDOWN SECTION (Same structure as order confirmation email)
   const amountBreakdown = `
     <div style="margin-top: 15px; padding: 15px; background: #f8f9fa; border-radius: 6px; border: 1px solid #ddd;">
-      <h4 style="margin: 0 0 12px 0; color: #333; font-size: 16px;">💰 Amount Breakdown</h4>
+      <h4 style="margin: 0 0 12px 0; color: #333; font-size: 16px;">💰 Order Amount Details</h4>
       <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 14px;">
         <div><strong>Subtotal:</strong></div>
         <div style="text-align: right;">${currencySymbol}${localSubtotal}</div>
@@ -1225,7 +1220,7 @@ export async function getAdminNewOrderEmail(order, userCurrency = 'USD') {
         <div style="text-align: right;">${currencySymbol}${localTax}</div>
         
         ${
-          order.discountAmount > 0
+          (order.discountAmount || 0) > 0
             ? `
           <div><strong style="color: #dc3545;">Discount:</strong></div>
           <div style="text-align: right; color: #dc3545;">-${currencySymbol}${localDiscount}</div>
@@ -1233,118 +1228,235 @@ export async function getAdminNewOrderEmail(order, userCurrency = 'USD') {
             : ''
         }
         
-        <div style="border-top: 2px solid #ccc; padding-top: 10px; margin-top: 5px; font-weight: bold; font-size: 16px;">Total Amount:</div>
-        <div style="border-top: 2px solid #ccc; padding-top: 10px; margin-top: 5px; text-align: right; font-weight: bold; font-size: 16px; color: #ff6b6b;">
+        <div style="border-top: 2px solid #ff6b6b; padding-top: 10px; margin-top: 5px; font-weight: bold; font-size: 16px;">Total Amount:</div>
+        <div style="border-top: 2px solid #ff6b6b; padding-top: 10px; margin-top: 5px; text-align: right; font-weight: bold; font-size: 16px; color: #ff6b6b;">
           ${currencySymbol}${localTotal}
         </div>
       </div>
     </div>
   `;
 
-  // ✅ Mobile-friendly item list
-  const mobileItemsHtml = await Promise.all(
-    order.items.map(async (item, index) => {
-      const localPriceRaw = await convertCurrency(item.price, 'USD', userCurrency);
-      const localPrice = formatPrice(roundAmount(localPriceRaw));
-      const productDetails = formatProductDetails(item);
+  // ✅ ITEMS LIST (Same compact and readable format)
+  const itemsHtml = order.items
+    .map((item) => {
+      const convertedPrice = convertToLocal(item.price || 0);
+      const itemTotal = formatPrice(roundAmount(convertedPrice * (item.quantity || 1)));
+      const productImage = item.product?.images?.[0] || '/images/placeholder-product.jpg';
+      const productName = item.product?.name || 'Product';
+      const qty = item.quantity || 1;
 
       return `
-        <div class="mobile-order-item" style="border-bottom: 1px solid #eee; padding: 12px 0; ${
-          index === order.items.length - 1 ? 'border-bottom: none;' : ''
-        }">
-          <div style="display: flex; gap: 10px;">
-            <img src="${item.product.images[0]}" alt="${item.product.name}" width="50" style="border-radius: 4px; border: 1px solid #f0f0f0; flex-shrink: 0;">
-            <div style="flex: 1;">
-              <strong style="color: #333; display: block; margin-bottom: 4px;">${item.product.name}</strong>
-              ${productDetails}
-              <div style="margin-top: 6px; color: #666; font-size: 14px;">
-                <span>Qty: ${item.quantity}</span> • 
-                <span>Price: ${currencySymbol}${localPrice}</span>
-              </div>
-            </div>
+        <div class="order-item">
+          <img src="${productImage}" alt="${productName}" class="item-image" />
+          <div class="item-info">
+            <div class="item-name">${productName}</div>
+            <div class="item-meta">Qty: ${qty}</div>
+            <div class="item-price">${currencySymbol}${itemTotal}</div>
           </div>
         </div>
       `;
     })
-  );
+    .join('');
 
-  // ✅ Desktop item table
-  const desktopItemsHtml = await Promise.all(
-    order.items.map(async (item) => {
-      const localPriceRaw = await convertCurrency(item.price, 'USD', userCurrency);
-      const localPrice = formatPrice(roundAmount(localPriceRaw));
-      const productDetails = formatProductDetails(item);
+  // ✅ CUSTOMER INFORMATION
+  const customerInfo = `
+    <div style="background: #e7f3ff; padding: 15px; border-radius: 8px; margin: 15px 0;">
+      <h4 style="margin: 0 0 10px 0; color: #004085;">👤 Customer Information</h4>
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; font-size: 14px;">
+        <div>
+          <strong>Name:</strong><br>
+          ${order.user?.name || 'N/A'}
+        </div>
+        <div>
+          <strong>Email:</strong><br>
+          ${order.user?.email || 'N/A'}
+        </div>
+        <div>
+          <strong>Order Date:</strong><br>
+          ${new Date(order.createdAt || new Date()).toLocaleString()}
+        </div>
+        <div>
+          <strong>Currency:</strong><br>
+          ${userCurrency}
+        </div>
+      </div>
+    </div>
+  `;
 
-      return `
-        <tr>
-          <td style="padding: 10px; border-bottom: 1px solid #eee; text-align: center; width: 60px;" class="mobile-hide">
-            <img src="${item.product.images[0]}" alt="${item.product.name}" width="50" style="border-radius: 4px; border: 1px solid #f0f0f0;">
-          </td>
-          <td style="padding: 10px; border-bottom: 1px solid #eee;">${item.product.name}${productDetails}</td>
-          <td style="padding: 10px; border-bottom: 1px solid #eee; text-align: center; width: 40px;" class="mobile-hide">${item.quantity}</td>
-          <td style="padding: 10px; border-bottom: 1px solid #eee; text-align: right; width: 80px;" class="mobile-hide">${currencySymbol}${localPrice}</td>
-        </tr>
-      `;
-    })
-  );
-
-  // ✅ Return Full HTML
   return `
     <!DOCTYPE html>
     <html>
-      <head>
-        <!-- Add your existing CSS here -->
-      </head>
-      <body>
-        <div class="container">
-          <div class="header">
-            <h1 style="margin: 0; font-size: 28px;">🛒 New Order Received!</h1>
-            <p style="margin: 10px 0 0 0; opacity: 0.9;">Order #${order.id} requires your attention</p>
-          </div>
-          
-          <div class="content">
-            <!-- Alert section -->
-            <div class="alert-section">
-              <h3 style="margin: 0 0 10px 0; color: #856404;">Action Required: Process This Order</h3>
-              <p style="margin: 0;">This order needs to be processed and forwarded to Printify for fulfillment.</p>
-            </div>
+    <head>
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>🛒 New Order Received - #${orderNumber}</title>
+      <style>
+        body {
+          font-family: 'Arial', sans-serif;
+          line-height: 1.6;
+          color: #333;
+          margin: 0;
+          padding: 0;
+          background: #f5f5f7;
+        }
+        .container {
+          max-width: 600px;
+          margin: 0 auto;
+          padding: 20px;
+        }
+        .header {
+          background: linear-gradient(135deg, #ff6b6b 0%, #ee5a24 100%);
+          color: white;
+          padding: 30px 20px;
+          text-align: center;
+          border-radius: 10px 10px 0 0;
+        }
+        .content {
+          background: white;
+          padding: 30px;
+          border-radius: 0 0 10px 10px;
+          box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+        }
+        .alert-section {
+          background: #fff3cd;
+          border: 1px solid #ffeaa7;
+          padding: 20px;
+          border-radius: 8px;
+          margin: 20px 0;
+        }
+        .order-summary {
+          background: #f9f9fb;
+          border-radius: 10px;
+          padding: 20px;
+          margin: 20px 0;
+        }
+        .order-item {
+          display: flex;
+          align-items: flex-start;
+          gap: 15px;
+          border-bottom: 1px solid #eee;
+          padding: 12px 0;
+        }
+        .item-image {
+          width: 60px;
+          height: 60px;
+          border-radius: 6px;
+          object-fit: cover;
+          flex-shrink: 0;
+          border: 1px solid #f0f0f0;
+        }
+        .item-info {
+          flex: 1;
+        }
+        .item-name {
+          font-weight: 600;
+          color: #333;
+          margin-bottom: 4px;
+          font-size: 14px;
+        }
+        .item-meta {
+          font-size: 12px;
+          color: #777;
+          margin-bottom: 5px;
+        }
+        .item-price {
+          font-weight: bold;
+          color: #ff6b6b;
+          font-size: 14px;
+        }
+        .action-button {
+          display: inline-block;
+          padding: 12px 24px;
+          background: #ff6b6b;
+          color: white !important;
+          text-decoration: none;
+          border-radius: 6px;
+          font-weight: 600;
+          font-size: 14px;
+          margin: 10px 5px;
+        }
+        .footer {
+          margin-top: 25px;
+          padding: 15px;
+          background: #f8f9fa;
+          text-align: center;
+          font-size: 12px;
+          color: #6c757d;
+          border-radius: 8px;
+        }
 
-            <div class="order-section">
-              <h3 style="color: #333; margin-top: 0; border-bottom: 2px solid #ff6b6b; padding-bottom: 8px;">Order Summary</h3>
-              
-              <!-- Mobile View -->
-              <div class="mobile-only">
-                ${mobileItemsHtml.join('')}
-                ${amountBreakdown}
-              </div>
-              
-              <!-- Desktop View -->
-              <div class="mobile-hide">
-                ${responsiveTableWrapper(`
-                  <table class="responsive-table">
-                    <thead>
-                      <tr>
-                        <th style="width: 60px; text-align: center;">Image</th>
-                        <th>Product</th>
-                        <th style="width: 40px; text-align: center;">Qty</th>
-                        <th style="width: 80px; text-align: right;">Price</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      ${desktopItemsHtml.join('')}
-                    </tbody>
-                  </table>
-                `)}
-                ${amountBreakdown}
-              </div>
+        /* ✅ Mobile Responsive Fixes */
+        @media only screen and (max-width: 600px) {
+          .container { padding: 10px; }
+          .header { padding: 25px 15px; font-size: 18px; }
+          .content { padding: 20px 15px; }
+          .order-item {
+            flex-direction: row;
+            align-items: center;
+          }
+          .item-image {
+            width: 50px;
+            height: 50px;
+          }
+          .action-button {
+            display: block;
+            width: 100%;
+            text-align: center;
+            margin: 10px 0;
+          }
+        }
+      </style>
+    </head>
+    <body>
+      <div class="container">
+        <div class="header">
+          <h1 style="margin: 0; font-size: 24px;">🛒 New Order Received!</h1>
+          <p style="margin: 10px 0 0 0; opacity: 0.9;">Order #${orderNumber} requires your attention</p>
+        </div>
+
+        <div class="content">
+          <div class="alert-section">
+            <h3 style="margin: 0 0 10px 0; color: #856404;">🚨 Action Required: Process This Order</h3>
+            <p style="margin: 0;">This order needs to be processed and forwarded to Printify for fulfillment.</p>
+          </div>
+
+          ${customerInfo}
+
+          <div class="order-summary">
+            <h3 style="color: #333; margin-top: 0; border-bottom: 2px solid #ff6b6b; padding-bottom: 8px;">📦 Order Summary</h3>
+            
+            <div style="margin-top:15px;">
+              <strong>🛒 Items Ordered:</strong>
+              ${itemsHtml}
             </div>
+            
+            ${amountBreakdown}
+          </div>
+
+          <div style="text-align: center; margin: 25px 0;">
+            <a href="${process.env.ADMIN_DASHBOARD_URL || 'https://admin.agumiyacollections.com'}/orders" class="action-button">View Order in Dashboard</a>
+          </div>
+
+          <div style="background: #d1fae5; padding: 15px; border-radius: 8px;">
+            <h4 style="margin: 0 0 10px 0; color: #065f46;">✅ Next Steps</h4>
+            <ul style="margin: 0; padding-left: 20px; font-size: 14px;">
+              <li>Review order details and shipping address</li>
+              <li>Process order through Printify dashboard</li>
+              <li>Update order status once shipped</li>
+              <li>Monitor for any customer inquiries</li>
+            </ul>
           </div>
         </div>
-      </body>
+
+        <div class="footer">
+          <p>© ${new Date().getFullYear()} Agumiya Collections Admin System</p>
+          <p>This is an automated notification. Please do not reply to this email.</p>
+        </div>
+      </div>
+    </body>
     </html>
   `;
 }
-
 /**
  * Order Cancelled Email (Responsive) - FIXED VERSION
  */
@@ -1416,10 +1528,6 @@ const localRefund = formatPrice(roundAmount(convertToLocal(order.refundAmount ||
     // ✅ REFUND INFO WITH NULL CHECKS
     const refundInfo = (order.refundAmount || 0) > 0 ? `
       <div style="background: #d1fae5; padding: 15px; border-radius: 6px; margin: 15px 0;">
-        <h4 style="margin: 0 0 10px 0; color: #065f46;">💰 Refund Information</h4>
-        <p style="margin: 5px 0;"><strong>Refund Amount:</strong> ${currencySymbol}${localRefund}</p>
-        <p style="margin: 5px 0;"><strong>Refund Status:</strong> <span class="refund-status refund-pending">PROCESSING</span></p>
-        <p style="margin: 5px 0;"><strong>Expected Timeline:</strong> 5-7 business days</p>
         <p style="margin: 8px 0 0 0; font-size: 14px; color: #666;">
           The refund will be processed to your original payment method. You'll receive a confirmation email once the refund is completed.
         </p>
@@ -1986,34 +2094,94 @@ function getFallbackAdminCancellationEmail(order, reason, cancelledBy) {
 }
 /** Refund Processed Email (Responsive)
  */
-export async function getRefundProcessedEmail(order, refundId, userCurrency = 'USD') {
+export async function getRefundProcessedEmail(order, refundId) {
+  if (!order || !order.items) {
+    console.error('Invalid order data in getRefundProcessedEmail:', order);
+    return '';
+  }
+
+  const userCurrency = order.currency || 'USD';
   const currencySymbol = getCurrencySymbol(userCurrency);
-  const localRefund = await convertCurrency(order.refundAmount || order.totalAmount, 'USD', userCurrency);
   
-  // Mobile-friendly items list
-  const mobileItemsList = await Promise.all(order.items.map(async (item, index) => {
-    const productDetails = formatProductDetails(item);
-    return `
-      <div class="mobile-order-item" style="margin-bottom: 10px; padding: 12px; background: #f8f9fa; border-radius: 6px; border-left: 4px solid #059669;">
-        <strong style="color: #333; display: block; margin-bottom: 5px;">${item.product.name}</strong>
-        ${productDetails}
-        <div style="margin-top: 6px; color: #666; font-size: 14px;">
-          <span>Quantity: ${item.quantity}</span>
+  // ✅ USE SAME LOGIC AS ORDER CONFIRMATION EMAIL FOR CONSISTENCY
+  const roundAmount = (amount) => {
+    return Math.round(parseFloat(amount || 0));
+  };
+
+  const convertToLocal = (usdAmount) => {
+    if (userCurrency === 'USD') return usdAmount;
+    const exchangeRate = order.exchangeRate || 83;
+    return (usdAmount || 0) * exchangeRate;
+  };
+
+  const formatPrice = (amount) => {
+    return parseFloat(amount || 0).toLocaleString('en-IN', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    });
+  };
+
+  // ✅ CORRECT CALCULATIONS (Same as order confirmation email)
+  const localRefund = formatPrice(roundAmount(order.refundAmount || order.totalAmount));
+  const localTotal = formatPrice(roundAmount(order.totalAmount));
+  const localSubtotal = formatPrice(roundAmount(convertToLocal(order.subtotalAmount || 0)));
+  const shippingCost = order.shipping?.shippingCost || order.shippingCost || 0;
+  const localShipping = formatPrice(roundAmount(convertToLocal(shippingCost)));
+  const localTax = formatPrice(roundAmount(convertToLocal(order.taxAmount || 0)));
+  const localDiscount = formatPrice(roundAmount(convertToLocal(order.discountAmount || 0)));
+
+  // ✅ AMOUNT BREAKDOWN SECTION (Same structure as order confirmation email)
+  const amountBreakdown = `
+    <div style="margin-top: 15px; padding: 15px; background: #f8f9fa; border-radius: 6px; border: 1px solid #ddd;">
+      <h4 style="margin: 0 0 12px 0; color: #333; font-size: 16px;">💰 Original Order Amount</h4>
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 14px;">
+        <div><strong>Subtotal:</strong></div>
+        <div style="text-align: right;">${currencySymbol}${localSubtotal}</div>
+        
+        <div><strong>Shipping:</strong></div>
+        <div style="text-align: right;">${currencySymbol}${localShipping}</div>
+        
+        <div><strong>Tax:</strong></div>
+        <div style="text-align: right;">${currencySymbol}${localTax}</div>
+        
+        ${
+          (order.discountAmount || 0) > 0
+            ? `
+          <div><strong style="color: #dc3545;">Discount:</strong></div>
+          <div style="text-align: right; color: #dc3545;">-${currencySymbol}${localDiscount}</div>
+        `
+            : ''
+        }
+        
+        <div style="border-top: 2px solid #059669; padding-top: 10px; margin-top: 5px; font-weight: bold; font-size: 16px;">Total Refunded:</div>
+        <div style="border-top: 2px solid #059669; padding-top: 10px; margin-top: 5px; text-align: right; font-weight: bold; font-size: 16px; color: #059669;">
+          ${currencySymbol}${localRefund}
         </div>
       </div>
-    `;
-  }));
+    </div>
+  `;
 
-  // Desktop items list
-  const desktopItemsList = await Promise.all(order.items.map(async (item) => {
-    const productDetails = formatProductDetails(item);
-    return `
-      <li style="margin-bottom: 10px; padding: 10px; background: #f8f9fa; border-radius: 6px;">
-        <strong>${item.product.name}</strong> × ${item.quantity}
-        ${productDetails}
-      </li>
-    `;
-  }));
+  // ✅ ITEMS LIST (Same compact and readable format as order confirmation)
+  const itemsHtml = order.items
+    .map((item) => {
+      const convertedPrice = convertToLocal(item.price || 0);
+      const itemTotal = formatPrice(roundAmount(convertedPrice * (item.quantity || 1)));
+      const productImage = item.product?.images?.[0] || '/images/placeholder-product.jpg';
+      const productName = item.product?.name || 'Product';
+      const qty = item.quantity || 1;
+
+      return `
+        <div class="order-item">
+          <img src="${productImage}" alt="${productName}" class="item-image" />
+          <div class="item-info">
+            <div class="item-name">${productName}</div>
+            <div class="item-meta">Qty: ${qty}</div>
+            <div class="item-price">${currencySymbol}${itemTotal}</div>
+          </div>
+        </div>
+      `;
+    })
+    .join('');
 
   return `
     <!DOCTYPE html>
@@ -2023,29 +2191,151 @@ export async function getRefundProcessedEmail(order, refundId, userCurrency = 'U
       <meta name="viewport" content="width=device-width, initial-scale=1.0">
       <title>Refund Processed - Order #${order.id}</title>
       <style>
-        body { font-family: 'Arial', sans-serif; line-height: 1.6; color: #333; margin: 0; padding: 0; background: #f9f9f9; }
-        .container { max-width: 600px; margin: 0 auto; padding: 20px; }
-        .header { background: linear-gradient(135deg, #059669 0%, #047857 100%); color: white; padding: 40px 20px; text-align: center; border-radius: 10px 10px 0 0; }
-        .content { background: white; padding: 40px; border-radius: 0 0 10px 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
-        .refund-success { background: #d1fae5; border: 1px solid #a7f3d0; padding: 30px; border-radius: 8px; margin: 20px 0; text-align: center; }
-        .refund-details { background: #f0fdf4; padding: 25px; border-radius: 8px; margin: 20px 0; }
-        .order-summary { background: #fafafa; padding: 25px; border-radius: 8px; margin: 20px 0; }
-        .next-steps { background: #eff6ff; padding: 25px; border-radius: 8px; margin: 20px 0; }
-        .footer { margin-top: 30px; padding: 20px; background: #f8f9fa; text-align: center; font-size: 12px; color: #6c757d; border-radius: 8px; }
-        .success-icon { font-size: 48px; margin-bottom: 15px; }
+        body { 
+          font-family: 'Arial', sans-serif; 
+          line-height: 1.6; 
+          color: #333; 
+          margin: 0; 
+          padding: 0; 
+          background: #f9f9f9; 
+        }
+        .container { 
+          max-width: 600px; 
+          margin: 0 auto; 
+          padding: 20px; 
+        }
+        .header { 
+          background: linear-gradient(135deg, #059669 0%, #047857 100%); 
+          color: white; 
+          padding: 40px 20px; 
+          text-align: center; 
+          border-radius: 10px 10px 0 0; 
+        }
+        .content { 
+          background: white; 
+          padding: 35px 30px; 
+          border-radius: 0 0 10px 10px; 
+          box-shadow: 0 4px 15px rgba(0,0,0,0.1); 
+        }
+        .refund-success { 
+          background: #d1fae5; 
+          border: 1px solid #a7f3d0; 
+          padding: 30px; 
+          border-radius: 8px; 
+          margin: 20px 0; 
+          text-align: center; 
+        }
+        .order-summary { 
+          background: #f9f9fb; 
+          border-radius: 10px; 
+          padding: 20px; 
+          margin: 25px 0; 
+        }
+        .order-item {
+          display: flex;
+          align-items: flex-start;
+          gap: 15px;
+          border-bottom: 1px solid #eee;
+          padding: 12px 0;
+        }
+        .item-image {
+          width: 60px;
+          height: 60px;
+          border-radius: 6px;
+          object-fit: cover;
+          flex-shrink: 0;
+          border: 1px solid #f0f0f0;
+        }
+        .item-info {
+          flex: 1;
+        }
+        .item-name {
+          font-weight: 600;
+          color: #333;
+          margin-bottom: 4px;
+          font-size: 14px;
+        }
+        .item-meta {
+          font-size: 12px;
+          color: #777;
+          margin-bottom: 5px;
+        }
+        .item-price {
+          font-weight: bold;
+          color: #059669;
+          font-size: 14px;
+        }
+        .next-steps { 
+          background: #eff6ff; 
+          padding: 25px; 
+          border-radius: 8px; 
+          margin: 20px 0; 
+        }
+        .footer { 
+          margin-top: 30px; 
+          padding: 20px; 
+          background: #f8f9fa; 
+          text-align: center; 
+          font-size: 12px; 
+          color: #6c757d; 
+          border-radius: 8px; 
+        }
+        .success-icon { 
+          font-size: 48px; 
+          margin-bottom: 15px; 
+        }
+        .action-button {
+          display: inline-block;
+          padding: 12px 24px;
+          background: #059669;
+          color: white !important;
+          text-decoration: none;
+          border-radius: 6px;
+          font-weight: 600;
+          font-size: 14px;
+          margin: 10px 5px;
+          transition: all 0.3s ease;
+        }
+        .action-button:hover {
+          background: #047857;
+          transform: translateY(-2px);
+        }
         
         /* Mobile Styles */
         @media only screen and (max-width: 600px) {
           .container { padding: 10px; }
           .header { padding: 30px 15px; }
           .content { padding: 25px 20px; }
-          .refund-success, .refund-details, .order-summary, .next-steps { padding: 20px 15px; }
+          .refund-success, .next-steps { padding: 20px 15px; }
           .success-icon { font-size: 36px; }
+          .order-item {
+            flex-direction: row;
+            align-items: center;
+            gap: 12px;
+          }
+          .item-image {
+            width: 50px;
+            height: 50px;
+          }
+          .action-button {
+            display: block !important;
+            width: 100% !important;
+            text-align: center;
+            margin: 10px 0 !important;
+            padding: 14px 20px !important;
+            box-sizing: border-box;
+          }
         }
         
         /* Desktop-only styles */
         @media only screen and (min-width: 601px) {
           .mobile-only { display: none !important; }
+        }
+
+        /* Button container for mobile */
+        .button-container {
+          text-align: center;
+          width: 100%;
         }
       </style>
     </head>
@@ -2060,83 +2350,54 @@ export async function getRefundProcessedEmail(order, refundId, userCurrency = 'U
           <div class="refund-success">
             <div class="success-icon">💰</div>
             <h2 style="margin: 0; color: #065f46;">Refund Processed Successfully!</h2>
-            <p style="font-size: 1.1em; margin: 10px 0 0 0;">Your money is on its way back to you</p>
-          </div>
-
-          <div class="refund-details">
-            <h3 style="color: #065f46; margin-top: 0; border-bottom: 2px solid #065f46; padding-bottom: 10px;">Refund Details</h3>
-            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
-              <div>
-                <p><strong>Order Number:</strong><br><span style="font-family: monospace; font-size: 1.1em;">#${order.id}</span></p>
-                <p><strong>Refund ID:</strong><br>${refundId}</p>
-              </div>
-              <div>
-                <p><strong>Refund Amount:</strong><br><span style="font-size: 1.4em; font-weight: bold; color: #065f46;">${currencySymbol}${localRefund}</span></p>
-                <p><strong>Processed Date:</strong><br>${new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</p>
-              </div>
-            </div>
+            <p style="font-size: 1.1em; margin: 10px 0 0 0; color: #065f46;">
+              <strong>Refund Amount: ${currencySymbol}${localRefund}</strong>
+            </p>
           </div>
 
           <div class="order-summary">
-            <h3 style="color: #333; margin-top: 0; border-bottom: 2px solid #065f46; padding-bottom: 10px;">Refunded Items</h3>
+            <h3 style="color: #333; margin-top: 0; border-bottom: 2px solid #059669; padding-bottom: 8px;">📦 Refunded Order Details</h3>
             
-            <!-- Mobile View -->
-            <div class="mobile-only">
-              ${mobileItemsList.join('')}
+            <p><strong>Order Number:</strong> #${order.id}</p>
+            <p><strong>Refund ID:</strong> ${refundId}</p>
+            <p><strong>Processed Date:</strong> ${new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</p>
+            <p><strong>Original Order Date:</strong> ${new Date(order.createdAt || new Date()).toLocaleDateString()}</p>
+            
+            <div style="margin-top:15px;">
+              <strong>🛒 Refunded Items:</strong>
+              ${itemsHtml}
             </div>
             
-            <!-- Desktop View -->
-            <div class="mobile-hide">
-              <ul style="list-style: none; padding: 0; margin: 0;">
-                ${desktopItemsList.join('')}
-              </ul>
-            </div>
-            
-            <p style="margin: 15px 0 0 0;"><strong>Original Order Date:</strong> ${new Date(order.createdAt).toLocaleDateString()}</p>
+            ${amountBreakdown}
           </div>
 
-          <div style="background: #fffbeb; padding: 25px; border-radius: 8px; margin: 20px 0;">
-            <h4 style="color: #d97706; margin-top: 0;">⏳ When to Expect Your Money</h4>
-            <p><strong>Timeline:</strong> The refund should appear in your account within <strong>3-5 business days</strong>, depending on your bank or payment provider.</p>
-            <p><strong>Payment Method:</strong> The amount will be credited to your original payment method (credit card, debit card, PayPal, etc.).</p>
+          <div style="background: #fffbeb; padding: 20px; border-radius: 8px; margin: 20px 0;">
+            <h4 style="color: #d97706; margin-top: 0;">⏳ Refund Timeline</h4>
+            <p><strong>Expected Processing:</strong> 3-5 business days</p>
+            <p><strong>Payment Method:</strong> Refund will be credited to your original payment method</p>
             
             <div style="margin-top: 15px; padding: 15px; background: white; border-radius: 6px;">
-              <strong>💡 Pro Tip:</strong>
-              <p style="margin: 8px 0 0 0;">If you don't see the refund after 5 business days, check with your bank first as processing times may vary.</p>
+              <strong>💡 Important:</strong>
+              <p style="margin: 8px 0 0 0; font-size: 14px;">If you don't see the refund after 5 business days, please contact your bank first as processing times may vary.</p>
             </div>
           </div>
 
           <div class="next-steps">
-            <h3 style="color: #1e40af; margin-top: 0; border-bottom: 2px solid #1e40af; padding-bottom: 10px;">What You Can Do Next</h3>
-            <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 15px; text-align: center;">
-              <div style="padding: 20px; background: white; border-radius: 8px;">
-                <div style="font-size: 32px; margin-bottom: 15px;">🛍️</div>
-                <strong>Continue Shopping</strong>
-                <p style="margin: 10px 0 0 0; font-size: 14px;">Explore our latest collections</p>
-                <a href="${process.env.CLIENT_URL}/products" style="color: #1e40af; text-decoration: none; font-weight: 600; font-size: 14px;">Browse Products →</a>
-              </div>
-              <div style="padding: 20px; background: white; border-radius: 8px;">
-                <div style="font-size: 32px; margin-bottom: 15px;">📞</div>
-                <strong>Need Help?</strong>
-                <p style="margin: 10px 0 0 0; font-size: 14px;">Contact our support team</p>
-                <a href="mailto:support@agumiyacollections.com" style="color: #1e40af; text-decoration: none; font-weight: 600; font-size: 14px;">Email Support →</a>
-              </div>
-              <div style="padding: 20px; background: white; border-radius: 8px;">
-                <div style="font-size: 32px; margin-bottom: 15px;">💬</div>
-                <strong>Feedback</strong>
-                <p style="margin: 10px 0 0 0; font-size: 14px;">Help us improve</p>
-                <a href="${process.env.CLIENT_URL}/feedback" style="color: #1e40af; text-decoration: none; font-weight: 600; font-size: 14px;">Share Feedback →</a>
-              </div>
+            <h3 style="color: #1e40af; margin-top: 0; border-bottom: 2px solid #1e40af; padding-bottom: 8px;">What's Next?</h3>
+            
+            <div class="button-container">
+              <a href="${process.env.CLIENT_URL || 'https://agumiyacollections.com'}/shop" class="action-button">Continue Shopping</a>
+              <a href="mailto:support@agumiyacollections.com" class="action-button" style="background: #667eea;">Contact Support</a>
             </div>
           </div>
 
           <div style="background: #f8fafc; padding: 20px; border-radius: 8px;">
-            <h4 style="margin-top: 0; color: #475569;">Have Questions About Your Refund?</h4>
-            <p>If you don't see the refund in your account after 5 business days, or if you have any questions:</p>
+            <h4 style="margin-top: 0; color: #475569;">Need Help?</h4>
+            <p>If you have any questions about your refund:</p>
             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-top: 15px;">
               <div>
                 <strong>📧 Email Support</strong>
-                <p style="margin: 8px 0 0 0;"><a href="mailto:support@agumiyacollections.com">support@agumiyacollections.com</a></p>
+                <p style="margin: 8px 0 0 0;"><a href="mailto:support@agumiyacollections.com" style="color: #059669;">support@agumiyacollections.com</a></p>
               </div>
               <div>
                 <strong>📞 Phone Support</strong>
@@ -2147,8 +2408,8 @@ export async function getRefundProcessedEmail(order, refundId, userCurrency = 'U
         </div>
         
         <div class="footer">
-          <p>Thank you for your patience and understanding. We hope to see you again soon!</p>
-          <p><strong>Agumiya Collections</strong></p>
+          <p>Thank you for your patience and understanding. We hope to serve you better in the future!</p>
+          <p><strong>Agumiya Collections Team</strong></p>
           <p>© ${new Date().getFullYear()} Agumiya Collections. All rights reserved.</p>
         </div>
       </div>

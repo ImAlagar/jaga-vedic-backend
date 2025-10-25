@@ -38,6 +38,9 @@ export class OrderService {
       orderNotes, 
       couponCode,
       subtotalAmount,
+      shippingCost,      // 🆕 From calculation service
+      taxAmount,         // 🆕 From calculation service  
+      taxRate,           // 🆕 From calculation service
       discountAmount,
       finalAmountUSD,
       finalAmountINR,
@@ -56,11 +59,14 @@ export class OrderService {
             userId,
             totalAmount: finalAmountINR,
             subtotalAmount: subtotalAmount,
+            shippingCost: shippingCost,
+            taxAmount: taxAmount,
+            taxRate: taxRate,
             currency: displayCurrency,
             baseCurrency: 'USD',
             exchangeRate: exchangeRate,
             originalAmount: finalAmountUSD,
-            paymentStatus: "SUCCEEDED", // ✅ Payment already successful
+            paymentStatus: "SUCCEEDED",
             fulfillmentStatus: "PLACED", 
             shippingAddress: shippingAddress,
             orderImage: orderImage || null,
@@ -69,6 +75,7 @@ export class OrderService {
             discountAmount: discountAmount,
             razorpayPaymentId: razorpayPaymentId,
             razorpayOrderId: razorpayOrderId,
+            paidAt: new Date(),
             items: {
               create: items.map((item) => ({
                 productId: item.productId,
@@ -91,11 +98,11 @@ export class OrderService {
           }
         });
 
-        // Create shipping record
+        // Create shipping record with actual cost
         await tx.orderShipping.create({
           data: {
             orderId: newOrder.id,
-            shippingCost: 0,
+            shippingCost: shippingCost,
             status: "PENDING",
           },
         });
@@ -106,7 +113,6 @@ export class OrderService {
       console.error('Order creation transaction failed:', transactionError);
       throw new Error(`Order creation failed: ${transactionError.message}`);
     }
-
     // Fetch complete order with relations
     const completeOrder = await prisma.order.findUnique({
       where: { id: order.id },
@@ -131,27 +137,51 @@ export class OrderService {
       throw new Error(`Failed to fetch created order ${order.id}`);
     }
 
-    // Record coupon usage if applicable
-    if (couponCode) {
-      try {
-        const coupon = await prisma.coupon.findUnique({
-          where: { code: couponCode }
-        });
-        
-        if (coupon) {
-          await prisma.couponUsage.create({
-            data: {
-              couponId: coupon.id,
-              userId: userId,
-              orderId: order.id,
-              discountAmount: discountAmount
-            }
+      // Record coupon usage if applicable
+      if (couponCode) {
+        try {
+          console.log('🔄 Attempting to record coupon usage for:', couponCode);
+          
+          const coupon = await prisma.coupon.findUnique({
+            where: { code: couponCode }
           });
+          
+          if (coupon) {
+            console.log('📝 Recording coupon usage in transaction...');
+            
+            // ✅ Do both operations in a transaction
+            await prisma.$transaction(async (tx) => {
+              // Create coupon usage record
+              await tx.couponUsage.create({
+                data: {
+                  couponId: coupon.id,
+                  userId: userId,
+                  orderId: order.id,
+                  discountAmount: discountAmount
+                }
+              });
+
+              // Update coupon usedCount
+              await tx.coupon.update({
+                where: { id: coupon.id },
+                data: { 
+                  usedCount: { increment: 1 }
+                }
+              });
+            });
+
+            console.log('✅ Coupon usage transaction completed successfully');
+            
+            // Verify the update worked
+            const updatedCoupon = await prisma.coupon.findUnique({
+              where: { id: coupon.id }
+            });
+            console.log(`📊 Coupon ${couponCode} usedCount is now: ${updatedCoupon.usedCount}`);
+          }
+        } catch (couponError) {
+          console.error('❌ Failed to record coupon usage:', couponError);
         }
-      } catch (couponError) {
-        console.error('Failed to record coupon usage:', couponError);
       }
-    }
 
     // 🎯 NOW FORWARD TO PRINTIFY (since payment is successful)
     logger.info(`🔄 Forwarding order ${order.id} to Printify`);
@@ -168,7 +198,7 @@ export class OrderService {
     logger.error(`❌ Order creation from payment failed: ${error.message}`);
     throw error;
   }
-}
+  }
 
   async createOrder(userId, orderData) {
     try {
@@ -303,7 +333,7 @@ export class OrderService {
       // ==================== FINAL AMOUNT CALCULATION ====================
       const userCountry = shippingAddress?.country || 'US';
       const displayCurrency = userCountry === 'IN' ? 'INR' : 'USD';
-      const exchangeRate = 88;
+      const exchangeRate = 87.8;
 
       // 🎯 FINAL TOTAL = SUBTOTAL - DISCOUNT ONLY (NO SHIPPING, NO TAX)
       let finalAmountUSD = subtotalAmount - discountAmount;
@@ -419,6 +449,7 @@ export class OrderService {
       throw error;
     }
   }
+
 
     async forwardOrderToPrintify(orderId) {
     try {
@@ -580,7 +611,7 @@ export class OrderService {
 
   // 🔥 ADD THIS NEW METHOD TO YOUR OrderService CLASS
   async calculateExpectedTotals(items, shippingAddress, subtotal, shippingCost, taxAmount, discountAmount = 0) {
-    const exchangeRate = 88;
+    const exchangeRate = 87.8;
     
     // Recalculate to ensure consistency
     const totalUSD = subtotal + shippingCost + taxAmount - discountAmount;
@@ -1059,143 +1090,256 @@ export class OrderService {
   }
 
 
-  async cancelOrder(orderId, reason, cancelledBy) {
-    try {
-      // Step 1: Quick database fetch with correct field names
-      const order = await prisma.order.findUnique({
-        where: { id: orderId },
-        select: {
-          id: true,
-          fulfillmentStatus: true,
-          paymentStatus: true,
-          razorpayPaymentId: true,
-          totalAmount: true,
-          printifyOrderId: true,
-          userId: true,
-          orderNotes: true
-        }
-      });
-
-      if (!order) throw new Error("Order not found");
-
-      // Step 2: Quick validation
-      const cancellableStatuses = ['PLACED', 'PENDING', 'PROCESSING'];
-      if (!cancellableStatuses.includes(order.fulfillmentStatus)) {
-        throw new Error(`Cannot cancel order with status: ${order.fulfillmentStatus}`);
-      }
-
-      // Step 3: Quick payment check (non-blocking)
-      let refundStatus = 'NOT_REQUIRED';
-      let refundAmount = 0;
-      
-      // Use razorpayPaymentId instead of paymentId
-      if (order.paymentStatus === 'SUCCEEDED' && order.razorpayPaymentId) {
-        refundStatus = 'PENDING';
-        refundAmount = order.totalAmount;
-      } else {
-        // FIXED: Replace logger with console.log
-        console.log('ℹ️ OrderService: No refund required', {
-          paymentStatus: order.paymentStatus,
-          hasPaymentId: !!order.razorpayPaymentId
-        });
-      }
-
-      // Step 4: Quick database update
-      const updateData = {
-        fulfillmentStatus: 'CANCELLED',
-        paymentStatus: order.paymentStatus === 'SUCCEEDED' ? 'REFUND_PENDING' : 'FAILED',
-        orderNotes: `${order.orderNotes || ''} | Cancelled: ${reason} | By: ${cancelledBy}`.substring(0, 500),
-        cancelledAt: new Date(),
-        cancellationReason: reason.substring(0, 255),
-        cancelledBy: cancelledBy,
-        refundStatus,
-        refundAmount,
-        refundRequestedAt: refundStatus === 'PENDING' ? new Date() : null
-      };
-
-      const cancelledOrder = await prisma.order.update({
-        where: { id: orderId },
-        data: updateData,
-        include: { 
-          user: { select: { id: true, email: true, name: true } },
-          items: { 
-            include: { 
-              product: { select: { id: true, name: true } } 
+async cancelOrder(orderId, reason, cancelledBy) {
+  try {
+    // Step 1: Get order with ALL data
+    const order = await prisma.order.findUnique({
+      where: { id: orderId },
+      select: {
+        id: true,
+        fulfillmentStatus: true,
+        paymentStatus: true,
+        razorpayPaymentId: true,
+        totalAmount: true,
+        printifyOrderId: true,
+        userId: true,
+        orderNotes: true,
+        currency: true,
+        subtotalAmount: true,
+        taxAmount: true,
+        discountAmount: true,
+        shippingCost: true,
+        exchangeRate: true,
+        createdAt: true,
+        shippingAddress: true,
+        user: { select: { id: true, email: true, name: true } },
+        items: { 
+          include: { 
+            product: { 
+              select: { 
+                id: true, 
+                name: true, 
+                images: true 
+              } 
             } 
           } 
         }
-      });
+      }
+    });
 
-      // Step 5: Start background processing (non-blocking)
-      this.processBackgroundTasks(cancelledOrder, reason).catch(error => {
-        console.error('❌ Background processing failed:', error.message);
-      });
+    if (!order) throw new Error("Order not found");
 
-      return cancelledOrder;
-
-    } catch (error) {
-      console.error('❌ OrderService: Cancellation failed', { orderId, error: error.message });
-      throw error;
+    // Step 2: Quick validation
+    const cancellableStatuses = ['PLACED', 'PENDING', 'PROCESSING'];
+    if (!cancellableStatuses.includes(order.fulfillmentStatus)) {
+      throw new Error(`Cannot cancel order with status: ${order.fulfillmentStatus}`);
     }
-  }
 
-  // Separate method for background tasks
-  async processBackgroundTasks(cancelledOrder, reason) {
+    // ✅ ENHANCED PAYMENT VALIDATION
+    let refundStatus = 'NOT_REQUIRED';
+    let refundAmount = 0;
     
-    try {
-      // 1. Printify cancellation (if needed)
-      if (cancelledOrder.printifyOrderId) {
-        try {
-          await this.printifyService.cancelOrder(cancelledOrder.printifyOrderId);
-        } catch (printifyError) {
-          console.warn('⚠️ Printify cancellation failed (non-critical):', printifyError.message);
+    if (order.paymentStatus === 'SUCCEEDED' && order.razorpayPaymentId) {
+      try {
+        // Verify payment actually exists before setting refund status
+        const paymentExists = await this.razorpayService.verifyPayment(order.razorpayPaymentId);
+        if (paymentExists) {
+          refundStatus = 'PENDING';
+          refundAmount = order.totalAmount;
+          console.log('✅ Payment verified, refund required');
+        } else {
+          console.log('⚠️ Payment ID exists but payment not found in Razorpay');
+          refundStatus = 'NOT_REQUIRED';
         }
+      } catch (verifyError) {
+        console.warn('⚠️ Payment verification failed:', verifyError.message);
+        refundStatus = 'NOT_REQUIRED';
       }
-
-      // 2. Refund processing (if needed) - use razorpayPaymentId
-      if (cancelledOrder.refundStatus === 'PENDING' && cancelledOrder.razorpayPaymentId) {
-        await this.processRefund(cancelledOrder, reason);
-      } else {
-        logger('ℹ️ No refund processing needed', {
-          refundStatus: cancelledOrder.refundStatus,
-          hasPaymentId: !!cancelledOrder.razorpayPaymentId
-        });
-      }
-
-      // 3. Send notifications
-      await this.sendCancellationNotifications(cancelledOrder, reason, cancelledOrder.cancelledBy);
-
-      
-    } catch (error) {
-      console.error('❌ Background tasks failed:', error.message);
+    } else {
+      console.log('ℹ️ OrderService: No refund required', {
+        paymentStatus: order.paymentStatus,
+        hasPaymentId: !!order.razorpayPaymentId
+      });
     }
+
+    // Step 4: Quick database update
+    const updateData = {
+      fulfillmentStatus: 'CANCELLED',
+      paymentStatus: order.paymentStatus === 'SUCCEEDED' ? 'REFUND_PENDING' : 'FAILED',
+      orderNotes: `${order.orderNotes || ''} | Cancelled: ${reason} | By: ${cancelledBy}`.substring(0, 500),
+      cancelledAt: new Date(),
+      cancellationReason: reason.substring(0, 255),
+      cancelledBy: cancelledBy,
+      refundStatus,
+      refundAmount,
+      refundRequestedAt: refundStatus === 'PENDING' ? new Date() : null
+    };
+
+    // Update order
+    await prisma.order.update({
+      where: { id: orderId },
+      data: updateData
+    });
+
+    // Create the cancelled order object manually
+    const cancelledOrder = {
+      ...order,
+      ...updateData,
+      refundStatus,
+      refundAmount,
+      cancelledAt: new Date()
+    };
+
+    console.log('✅ Order updated in database');
+    console.log('📧 User email:', cancelledOrder.user?.email);
+    console.log('📦 Items count:', cancelledOrder.items?.length);
+    console.log('🏠 Shipping address available:', !!cancelledOrder.shippingAddress);
+
+    // Step 5: Start background processing
+    console.log('🚀 Starting background tasks...');
+    this.processBackgroundTasks(cancelledOrder, reason).catch(error => {
+      console.error('❌ Background processing failed:', error);
+    });
+
+    return cancelledOrder;
+
+  } catch (error) {
+    console.error('❌ OrderService: Cancellation failed', { orderId, error: error.message });
+    throw error;
   }
+}
 
+async processBackgroundTasks(cancelledOrder, reason) {
+  try {
+    console.log('🔄 Starting background tasks for order:', cancelledOrder.id);
+    
+    // 1. Printify cancellation
+    if (cancelledOrder.printifyOrderId) {
+      try {
+        await this.printifyService.cancelOrder(cancelledOrder.printifyOrderId);
+        console.log('✅ Printify order cancelled');
+      } catch (printifyError) {
+        console.warn('⚠️ Printify cancellation failed:', printifyError.message);
+      }
+    }
 
-  async sendCancellationNotifications(order, reason, cancelledBy) {
+    // 2. Refund processing - WITH ENHANCED VALIDATION
+    if (cancelledOrder.refundStatus === 'PENDING' && cancelledOrder.razorpayPaymentId) {
+      try {
+        // Double-check payment exists before refund attempt
+        const paymentExists = await this.razorpayService.verifyPayment(cancelledOrder.razorpayPaymentId);
+        if (paymentExists) {
+          await this.processRefund(cancelledOrder, reason);
+        } else {
+          console.log('⚠️ Skipping refund - payment not found in Razorpay');
+          // Update order to reflect no refund needed
+          await prisma.order.update({
+            where: { id: cancelledOrder.id },
+            data: { 
+              refundStatus: 'NOT_REQUIRED',
+              orderNotes: `${cancelledOrder.orderNotes} | Refund skipped - payment not found`
+            }
+          });
+        }
+      } catch (refundError) {
+        console.error('❌ Refund processing failed:', refundError.message);
+      }
+    } else {
+      console.log('ℹ️ No refund processing needed');
+    }
+
+    // 3. Send notifications
     try {
-      // Send email to customer
-      const customerEmailContent = await getOrderCancelledEmail(order, reason, cancelledBy);
-      await sendMail(
-        order.user.email,
-        `Order #${order.id} Cancellation Confirmation - Agumiya Collections`,
-        customerEmailContent
-      );
-
-      // Send email to admin
-      const adminEmailContent = getAdminCancellationEmail(order, reason, cancelledBy);
-      await sendMail(
-        process.env.ADMIN_EMAIL || 'support@agumiyacollections.com',
-        `🚨 Order Cancellation Alert - #${order.id}`,
-        adminEmailContent
-      );
-
-      logger.info(`📧 Cancellation notifications sent to customer and admin for order ${order.id}`);
-    } catch (error) {
-      logger.error(`❌ Failed to send cancellation notifications:`, error);
-      throw error;
+      await this.sendCancellationNotifications(cancelledOrder, reason, cancelledOrder.cancelledBy);
+    } catch (emailError) {
+      console.error('❌ Email notifications failed:', emailError.message);
     }
+    
+    console.log('✅ All background tasks completed for order:', cancelledOrder.id);
+    
+  } catch (error) {
+    console.error('❌ Background tasks failed:', error.message);
   }
+}
+
+// FIXED: Email notification method with proper async handling
+async sendCancellationNotifications(order, reason, cancelledBy) {
+  try {
+    console.log('📧 Starting cancellation notifications for order:', order.id);
+    console.log('📧 User email address:', order.user?.email);
+    
+    // Step 1: Customer email - ADD AWAIT
+    console.log('1. Generating customer cancellation email...');
+    const customerEmailContent = await getOrderCancelledEmail(order, reason, cancelledBy);
+    console.log('2. Customer email content length:', customerEmailContent?.length);
+    
+    if (!customerEmailContent || typeof customerEmailContent !== 'string' || customerEmailContent.length < 10) {
+      console.error('❌ Invalid customer email content:', {
+        type: typeof customerEmailContent,
+        length: customerEmailContent?.length
+      });
+      // Don't throw - use fallback
+      throw new Error('Customer email content is invalid');
+    }
+    
+    console.log('3. Sending customer email to:', order.user?.email);
+    await sendMail(
+      order.user.email,
+      `Order #${order.id} Cancellation Confirmation - Agumiya Collections`,
+      customerEmailContent
+    );
+    console.log('4. ✅ Customer email sent successfully');
+    
+    // Step 2: Admin email - ADD AWAIT
+    console.log('5. Generating admin cancellation email...');
+    const adminEmailContent = await getAdminCancellationEmail(order, reason, cancelledBy);
+    console.log('6. Admin email content length:', adminEmailContent?.length);
+    
+    if (!adminEmailContent || typeof adminEmailContent !== 'string' || adminEmailContent.length < 10) {
+      console.error('❌ Invalid admin email content:', {
+        type: typeof adminEmailContent,
+        length: adminEmailContent?.length
+      });
+      // Don't throw - use fallback
+      throw new Error('Admin email content is invalid');
+    }
+    
+    console.log('7. Sending admin email...');
+    await sendMail(
+      process.env.ADMIN_EMAIL || 'support@agumiyacollections.com',
+      `🚨 Order Cancellation Alert - #${order.id}`,
+      adminEmailContent
+    );
+    console.log('8. ✅ Admin email sent successfully');
+    
+    console.log('🎉 All cancellation emails sent successfully for order:', order.id);
+    
+  } catch (error) {
+    console.error('❌ Failed to send cancellation notifications:', error.message);
+    // Log but don't throw - email failure shouldn't break cancellation
+    await this.logEmailFailure(order.id, error);
+  }
+}
+
+// Add helper method for logging email failures
+async logEmailFailure(orderId, error) {
+  try {
+    await prisma.paymentLog.create({
+      data: {
+        orderId: orderId,
+        paymentId: `email_failure_${Date.now()}`,
+        amount: 0,
+        status: 'FAILED',
+        errorMessage: `Email notification failed: ${error.message}`,
+        gateway: 'EMAIL_SYSTEM',
+        rawResponse: { error: error.toString() }
+      }
+    });
+  } catch (logError) {
+    console.error('❌ Failed to log email failure:', logError.message);
+  }
+}
+
 
 
   async processRefund(order, reason = "Order cancellation") {
@@ -1312,7 +1456,11 @@ export class OrderService {
 
 async sendRefundNotification(order, refundId) {
     try {
-      const emailContent = getRefundProcessedEmail(order, refundId);
+      console.log('💰 Generating refund notification email for order:', order.id);
+      
+      // ✅ FIX: Add await if getRefundProcessedEmail is async
+      const emailContent = await getRefundProcessedEmail(order, refundId);
+      console.log('✅ Refund email content generated, type:', typeof emailContent);
       
       await sendMail(
         order.user.email,
@@ -1320,11 +1468,12 @@ async sendRefundNotification(order, refundId) {
         emailContent
       );
 
-      logger.info(`📧 Refund notification sent for order ${order.id}`);
+      console.log('📧 Refund notification sent for order:', order.id);
     } catch (error) {
-      logger.error(`❌ Failed to send refund notification: ${error.message}`);
+      console.error('❌ Failed to send refund notification:', error.message);
     }
 }
+
 
 async getCancelledOrders(filters = {}) {
     const where = {
@@ -1421,29 +1570,72 @@ async getCancelledOrders(filters = {}) {
     }
   }
 
-
-  async getUserOrders(userId) {
-    try {
-        const orders = await prisma.order.findMany({
-            where: { userId },
-            include: {
-                items: {
-                    include: {
-                        product: {
-                            select: { id: true, name: true, price: true, images: true },
-                        },
-                    },
-                },
+async getUserOrders(userId) {
+  try {
+    const orders = await prisma.order.findMany({
+      where: { userId },
+      select: {
+        id: true,
+        userId: true,
+        totalAmount: true,
+        subtotalAmount: true,
+        // 🔥 EXPLICITLY SELECT THESE FIELDS:
+        shippingCost: true,
+        taxAmount: true, 
+        taxRate: true,
+        discountAmount: true,
+        currency: true,
+        couponCode: true,
+        // ... your existing fields
+        paymentStatus: true,
+        fulfillmentStatus: true,
+        shippingAddress: true,
+        createdAt: true,
+        updatedAt: true,
+        printifyOrderId: true,
+        trackingNumber: true,
+        trackingUrl: true,
+        carrier: true,
+        orderNotes: true,
+        orderImage: true,
+        items: {
+          include: {
+            product: {
+              select: { 
+                id: true, 
+                name: true, 
+                price: true, 
+                images: true 
+              },
             },
-            orderBy: { createdAt: "desc" },
-        });
-         
-        return orders;
-    } catch (error) {
-        console.error('Error in getUserOrders:', error);
-        throw error;
-    }
+          },
+        },
+        shipping: {
+          select: {
+            shippingCost: true,
+            status: true
+          }
+        },
+        // Include cancellation and refund fields if needed
+        cancelledAt: true,
+        cancellationReason: true,
+        cancelledBy: true,
+        refundStatus: true,
+        refundAmount: true,
+        refundRequestedAt: true,
+        refundProcessedAt: true,
+        razorpayRefundId: true
+      },
+      orderBy: { createdAt: "desc" },
+    });
+    
+    return orders;
+  } catch (error) {
+    console.error('Error in getUserOrders:', error);
+    throw error;
   }
+}
+
 
 async getAllOrders(filters = {}) {
   const {

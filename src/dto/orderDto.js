@@ -47,7 +47,6 @@ export class CreateOrderDto {
     return errors;
   }
 }
-// src/dto/orderDto.js
 export class OrderResponseDto {
   static fromOrder(order) {
     try {
@@ -75,6 +74,14 @@ export class OrderResponseDto {
         userId: order.userId,
         totalAmount: order.totalAmount,
         subtotalAmount: order.subtotalAmount,
+        // 🔥 ADD THESE MISSING FIELDS:
+        shippingCost: order.shippingCost || 0,
+        taxAmount: order.taxAmount || 0,
+        taxRate: order.taxRate || 0,
+        discountAmount: order.discountAmount || 0,
+        currency: order.currency || 'USD',
+        couponCode: order.couponCode || null,
+        // ... your existing fields
         paymentStatus: order.paymentStatus,
         fulfillmentStatus: order.fulfillmentStatus,
         shippingAddress: order.shippingAddress || {},

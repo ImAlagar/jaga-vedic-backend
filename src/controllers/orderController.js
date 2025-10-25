@@ -75,7 +75,6 @@ export async function manualForwardToPrintify(req, res) {
   }
 }
 
-
 export async function getUserOrders(req, res) {
   try {
     if (!req.user || !req.user.id) {
