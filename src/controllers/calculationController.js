@@ -6,12 +6,6 @@ export const calculateOrderTotals = async (req, res) => {
     const { cartItems, shippingAddress, couponCode } = req.body;
     const userId = req.user?.id;
 
-    console.log('📦 Calculation Request:', {
-      itemCount: cartItems?.length,
-      country: shippingAddress?.country,
-      couponCode: couponCode,
-      userId: userId
-    });
 
     if (!cartItems || !Array.isArray(cartItems) || cartItems.length === 0) {
       return res.status(400).json({

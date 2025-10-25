@@ -48,14 +48,8 @@ class RazorpayService {
     // ADD THESE MISSING METHODS:
   async verifyPayment(paymentId) {
     try {
-      console.log('🔍 Verifying payment existence:', paymentId);
       const payment = await this.instance.payments.fetch(paymentId);
       const exists = payment && payment.status === 'captured';
-      console.log('✅ Payment verification result:', { 
-        exists, 
-        status: payment?.status,
-        amount: payment?.amount 
-      });
       return exists;
     } catch (error) {
       console.error('❌ Payment verification failed:', {
@@ -69,14 +63,8 @@ class RazorpayService {
 
   async getPayment(paymentId) {
     try {
-      console.log('📋 Fetching payment details:', paymentId);
       const payment = await this.instance.payments.fetch(paymentId);
-      console.log('✅ Payment details fetched:', { 
-        id: payment.id, 
-        status: payment.status,
-        amount: payment.amount,
-        currency: payment.currency
-      });
+
       return payment;
     } catch (error) {
       console.error('❌ Failed to fetch payment:', {
@@ -147,7 +135,6 @@ class RazorpayService {
       // Step 5: Process refund with enhanced error handling
       for (let attempt = 1; attempt <= retries; attempt++) {
         try {
-          console.log(`🔄 Refund attempt ${attempt} for payment:`, paymentId);
           
           // ✅ FIX: Add await here
           const refund = await this.instance.payments.refund(refundData);

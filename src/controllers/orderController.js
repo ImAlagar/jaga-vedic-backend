@@ -557,7 +557,6 @@ export async function processRefund(req, res) {
       return errorResponse(res, "Valid order ID is required", HttpStatus.BAD_REQUEST);
     }
 
-    console.log(`🔄 Processing refund for order ${orderId}`);
 
     // Get complete order data with proper validation
     const order = await prisma.order.findUnique({
@@ -571,14 +570,6 @@ export async function processRefund(req, res) {
     if (!order) {
       return errorResponse(res, "Order not found", HttpStatus.NOT_FOUND);
     }
-
-    console.log('📦 Order details:', {
-      id: order.id,
-      paymentStatus: order.paymentStatus,
-      refundStatus: order.refundStatus,
-      hasPaymentId: !!order.razorpayPaymentId,
-      fulfillmentStatus: order.fulfillmentStatus
-    });
 
     // ENHANCED VALIDATION: Check if payment was actually successful
     if (order.paymentStatus === 'PENDING' || order.paymentStatus === 'FAILED') {

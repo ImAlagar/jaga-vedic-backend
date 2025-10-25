@@ -140,14 +140,12 @@ export class OrderService {
       // Record coupon usage if applicable
       if (couponCode) {
         try {
-          console.log('🔄 Attempting to record coupon usage for:', couponCode);
           
           const coupon = await prisma.coupon.findUnique({
             where: { code: couponCode }
           });
           
           if (coupon) {
-            console.log('📝 Recording coupon usage in transaction...');
             
             // ✅ Do both operations in a transaction
             await prisma.$transaction(async (tx) => {
@@ -170,13 +168,11 @@ export class OrderService {
               });
             });
 
-            console.log('✅ Coupon usage transaction completed successfully');
             
             // Verify the update worked
             const updatedCoupon = await prisma.coupon.findUnique({
               where: { id: coupon.id }
             });
-            console.log(`📊 Coupon ${couponCode} usedCount is now: ${updatedCoupon.usedCount}`);
           }
         } catch (couponError) {
           console.error('❌ Failed to record coupon usage:', couponError);
@@ -1146,9 +1142,7 @@ async cancelOrder(orderId, reason, cancelledBy) {
         if (paymentExists) {
           refundStatus = 'PENDING';
           refundAmount = order.totalAmount;
-          console.log('✅ Payment verified, refund required');
         } else {
-          console.log('⚠️ Payment ID exists but payment not found in Razorpay');
           refundStatus = 'NOT_REQUIRED';
         }
       } catch (verifyError) {
@@ -1156,7 +1150,7 @@ async cancelOrder(orderId, reason, cancelledBy) {
         refundStatus = 'NOT_REQUIRED';
       }
     } else {
-      console.log('ℹ️ OrderService: No refund required', {
+      console.error('ℹ️ OrderService: No refund required', {
         paymentStatus: order.paymentStatus,
         hasPaymentId: !!order.razorpayPaymentId
       });
@@ -1190,13 +1184,8 @@ async cancelOrder(orderId, reason, cancelledBy) {
       cancelledAt: new Date()
     };
 
-    console.log('✅ Order updated in database');
-    console.log('📧 User email:', cancelledOrder.user?.email);
-    console.log('📦 Items count:', cancelledOrder.items?.length);
-    console.log('🏠 Shipping address available:', !!cancelledOrder.shippingAddress);
 
     // Step 5: Start background processing
-    console.log('🚀 Starting background tasks...');
     this.processBackgroundTasks(cancelledOrder, reason).catch(error => {
       console.error('❌ Background processing failed:', error);
     });
@@ -1211,13 +1200,11 @@ async cancelOrder(orderId, reason, cancelledBy) {
 
 async processBackgroundTasks(cancelledOrder, reason) {
   try {
-    console.log('🔄 Starting background tasks for order:', cancelledOrder.id);
     
     // 1. Printify cancellation
     if (cancelledOrder.printifyOrderId) {
       try {
         await this.printifyService.cancelOrder(cancelledOrder.printifyOrderId);
-        console.log('✅ Printify order cancelled');
       } catch (printifyError) {
         console.warn('⚠️ Printify cancellation failed:', printifyError.message);
       }
@@ -1231,7 +1218,6 @@ async processBackgroundTasks(cancelledOrder, reason) {
         if (paymentExists) {
           await this.processRefund(cancelledOrder, reason);
         } else {
-          console.log('⚠️ Skipping refund - payment not found in Razorpay');
           // Update order to reflect no refund needed
           await prisma.order.update({
             where: { id: cancelledOrder.id },
@@ -1245,7 +1231,7 @@ async processBackgroundTasks(cancelledOrder, reason) {
         console.error('❌ Refund processing failed:', refundError.message);
       }
     } else {
-      console.log('ℹ️ No refund processing needed');
+      console.error('ℹ️ No refund processing needed');
     }
 
     // 3. Send notifications
@@ -1255,7 +1241,6 @@ async processBackgroundTasks(cancelledOrder, reason) {
       console.error('❌ Email notifications failed:', emailError.message);
     }
     
-    console.log('✅ All background tasks completed for order:', cancelledOrder.id);
     
   } catch (error) {
     console.error('❌ Background tasks failed:', error.message);
@@ -1265,13 +1250,9 @@ async processBackgroundTasks(cancelledOrder, reason) {
 // FIXED: Email notification method with proper async handling
 async sendCancellationNotifications(order, reason, cancelledBy) {
   try {
-    console.log('📧 Starting cancellation notifications for order:', order.id);
-    console.log('📧 User email address:', order.user?.email);
-    
+
     // Step 1: Customer email - ADD AWAIT
-    console.log('1. Generating customer cancellation email...');
     const customerEmailContent = await getOrderCancelledEmail(order, reason, cancelledBy);
-    console.log('2. Customer email content length:', customerEmailContent?.length);
     
     if (!customerEmailContent || typeof customerEmailContent !== 'string' || customerEmailContent.length < 10) {
       console.error('❌ Invalid customer email content:', {
@@ -1282,18 +1263,14 @@ async sendCancellationNotifications(order, reason, cancelledBy) {
       throw new Error('Customer email content is invalid');
     }
     
-    console.log('3. Sending customer email to:', order.user?.email);
     await sendMail(
       order.user.email,
       `Order #${order.id} Cancellation Confirmation - Agumiya Collections`,
       customerEmailContent
     );
-    console.log('4. ✅ Customer email sent successfully');
     
     // Step 2: Admin email - ADD AWAIT
-    console.log('5. Generating admin cancellation email...');
     const adminEmailContent = await getAdminCancellationEmail(order, reason, cancelledBy);
-    console.log('6. Admin email content length:', adminEmailContent?.length);
     
     if (!adminEmailContent || typeof adminEmailContent !== 'string' || adminEmailContent.length < 10) {
       console.error('❌ Invalid admin email content:', {
@@ -1304,15 +1281,12 @@ async sendCancellationNotifications(order, reason, cancelledBy) {
       throw new Error('Admin email content is invalid');
     }
     
-    console.log('7. Sending admin email...');
     await sendMail(
       process.env.ADMIN_EMAIL || 'support@agumiyacollections.com',
       `🚨 Order Cancellation Alert - #${order.id}`,
       adminEmailContent
     );
-    console.log('8. ✅ Admin email sent successfully');
-    
-    console.log('🎉 All cancellation emails sent successfully for order:', order.id);
+
     
   } catch (error) {
     console.error('❌ Failed to send cancellation notifications:', error.message);
@@ -1456,11 +1430,9 @@ async logEmailFailure(orderId, error) {
 
 async sendRefundNotification(order, refundId) {
     try {
-      console.log('💰 Generating refund notification email for order:', order.id);
       
       // ✅ FIX: Add await if getRefundProcessedEmail is async
       const emailContent = await getRefundProcessedEmail(order, refundId);
-      console.log('✅ Refund email content generated, type:', typeof emailContent);
       
       await sendMail(
         order.user.email,
@@ -1468,7 +1440,6 @@ async sendRefundNotification(order, refundId) {
         emailContent
       );
 
-      console.log('📧 Refund notification sent for order:', order.id);
     } catch (error) {
       console.error('❌ Failed to send refund notification:', error.message);
     }

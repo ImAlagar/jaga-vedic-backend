@@ -10,7 +10,6 @@ export class CalculationService {
    */
   async calculateOrderTotals(cartItems, shippingAddress, couponCode = '', userId = null) {
     try {
-      console.log('🔄 CALCULATION STARTED - Real-time shipping, tax & coupon');
       
       // Validate inputs
       if (!cartItems || !Array.isArray(cartItems) || cartItems.length === 0) {
@@ -23,19 +22,15 @@ export class CalculationService {
 
       // Step 1: Calculate subtotal
       const subtotal = this.calculateSubtotal(cartItems);
-      console.log('💰 Subtotal:', subtotal);
 
       // Step 2: Get real-time Printify shipping cost
       const shippingResult = await this.getRealTimeShipping(cartItems, shippingAddress);
-      console.log('🚚 Shipping Result:', shippingResult);
 
       // Step 3: Calculate tax
       const taxResult = await this.calculateTaxAmount(cartItems, subtotal, shippingResult.totalShipping, shippingAddress);
-      console.log('🧾 Tax Result:', taxResult);
 
       // Step 4: Validate and apply coupon
       const couponResult = await this.applyCoupon(cartItems, subtotal, couponCode, userId, shippingAddress.country);
-      console.log('🎫 Coupon Result:', couponResult);
 
       // Step 5: Calculate final totals
       const finalTotals = this.calculateFinalTotals(
@@ -45,7 +40,6 @@ export class CalculationService {
         couponResult.discountAmount
       );
 
-      console.log('✅ Final Totals:', finalTotals);
 
       return {
         success: true,
@@ -220,10 +214,6 @@ async applyCoupon(cartItems, subtotal, couponCode, userId, country) {
       country
     );
 
-    console.log('🔍 COUPON VALIDATION DEBUG:', {
-      isValid: couponValidation.isValid,
-      couponObject: couponValidation.coupon
-    });
 
     let finalDiscount = 0;
     let message = 'No coupon applied';

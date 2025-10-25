@@ -219,55 +219,37 @@ export class CouponService {
    * Calculate discount amount
    */
 _calculateDiscount(coupon, applicableSubtotal) {
-  console.log('🔍 COUPON CALCULATION DEBUG:', {
-    couponCode: coupon?.code,
-    discountType: coupon?.discountType,
-    discountValue: coupon?.discountValue,
-    applicableSubtotal: applicableSubtotal,
-    hasCoupon: !!coupon,
-    subtotalValid: applicableSubtotal > 0
-  });
 
   if (!coupon) {
-    console.log('❌ No coupon object');
     return 0;
   }
 
   if (applicableSubtotal <= 0) {
-    console.log('❌ Zero or negative applicable subtotal');
     return 0;
   }
 
   let discountAmount = 0;
 
   try {
-    console.log('🔄 Starting discount calculation...');
-    
+\    
     if (coupon.discountType === "PERCENTAGE") {
-      console.log('📊 Percentage discount calculation:');
-      console.log(`   ${applicableSubtotal} × ${coupon.discountValue}% = ${(applicableSubtotal * coupon.discountValue) / 100}`);
       
       discountAmount = (applicableSubtotal * coupon.discountValue) / 100;
       
-      console.log('💰 Before max discount check:', discountAmount);
       
       // Apply max discount limit
       if (coupon.maxDiscountAmount && discountAmount > coupon.maxDiscountAmount) {
-        console.log(`📏 Applying max discount limit: ${coupon.maxDiscountAmount}`);
         discountAmount = coupon.maxDiscountAmount;
       }
     } 
     else if (coupon.discountType === "FIXED_AMOUNT") {
-      console.log('💵 Fixed amount discount calculation:');
-      console.log(`   Min(${coupon.discountValue}, ${applicableSubtotal})`);
-      
+
       discountAmount = Math.min(coupon.discountValue, applicableSubtotal);
     }
     else {
-      console.log('❌ Unknown discount type:', coupon.discountType);
+      console.error('❌ Unknown discount type:', coupon.discountType);
     }
 
-    console.log('🔢 Before final checks:', discountAmount);
     
     // Ensure discount doesn't exceed applicable subtotal
     discountAmount = Math.min(discountAmount, applicableSubtotal);
@@ -275,7 +257,6 @@ _calculateDiscount(coupon, applicableSubtotal) {
     // Round to 2 decimal places
     discountAmount = Math.round(discountAmount * 100) / 100;
     
-    console.log('✅ FINAL DISCOUNT AMOUNT:', discountAmount);
 
   } catch (error) {
     console.error('❌ Discount calculation error:', error);
