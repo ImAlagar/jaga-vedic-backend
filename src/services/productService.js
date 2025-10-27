@@ -530,47 +530,53 @@ export async function deleteProductByPrintifyId(printifyProductId, shopId) {
   try {
     logger.info(`🗑️ Attempting to delete Printify product: ${printifyProductId} from shop: ${shopId}`);
 
-    // First, delete from Printify API
-    await printifyApi.delete(`/shops/${shopId}/products/${printifyProductId}.json`);
+    let printifyDeleted = false;
+    let locallyDeleted = false;
 
-    // Then delete from our database
+    // Printify API deletion
+    try {
+      await printifyApi.delete(`/shops/${shopId}/products/${printifyProductId}.json`);
+      logger.info(`✅ Printify product deleted from API: ${printifyProductId}`);
+      printifyDeleted = true;
+    } catch (error) {
+      if (error.response?.status === 404) {
+        logger.info(`ℹ️ Printify product already deleted: ${printifyProductId}`);
+        printifyDeleted = true;
+      } else {
+        logger.warn(`⚠️ Printify deletion failed: ${error.message}`);
+      }
+    }
+
+    // Local database soft deletion
     const existingProduct = await productModel.findProductByPrintifyId(printifyProductId);
     
     if (existingProduct) {
-      await productModel.deleteProductById(existingProduct.id);
+      await productModel.softDeleteProductByPrintifyId(printifyProductId);
+      logger.info(`✅ Product soft deleted from database: ${printifyProductId}`);
+      locallyDeleted = true;
     }
 
-    logger.info(`✅ Printify product deleted successfully: ${printifyProductId}`);
-    
-    return {
+    // Create a CLEAN response with all required fields
+    const response = {
       success: true,
-      message: 'Product deleted from Printify and local database',
-      deletedProduct: {
+      message: 'Product deleted successfully',
+      printifyDeleted: printifyDeleted,
+      locallyDeleted: locallyDeleted,
+      details: {
+        shopId: shopId,
         printifyProductId: printifyProductId,
-        name: existingProduct?.name
+        productName: existingProduct?.name
       }
     };
+
+    // Log the exact response being returned
+    logger.info('📤 Sending response to controller:', JSON.stringify(response));
+
+    return response;
+
   } catch (error) {
-    logger.error(`❌ Failed to delete Printify product ${printifyProductId}: ${error.message}`);
-    
-    // If Printify deletion fails but we have local record, still delete locally
-    if (error.response?.status === 404) {
-      const existingProduct = await productModel.findProductByPrintifyId(printifyProductId);
-      if (existingProduct) {
-        await productModel.deleteProductById(existingProduct.id);
-        logger.info(`✅ Local product record deleted (Printify product not found): ${printifyProductId}`);
-        return {
-          success: true,
-          message: 'Product deleted from local database (was not found on Printify)',
-          deletedProduct: {
-            printifyProductId: printifyProductId,
-            name: existingProduct.name
-          }
-        };
-      }
-    }
-    
-    throw new Error(`Failed to delete Printify product: ${error.message}`);
+    logger.error(`❌ Failed to delete Printify product: ${error.message}`);
+    throw error;
   }
 }
 

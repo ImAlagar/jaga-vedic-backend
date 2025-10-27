@@ -219,14 +219,6 @@ export class CouponService {
    * Calculate discount amount
    */
 _calculateDiscount(coupon, applicableSubtotal) {
-  console.log('🔍 COUPON CALCULATION DEBUG:', {
-    couponCode: coupon?.code,
-    discountType: coupon?.discountType,
-    discountValue: coupon?.discountValue,
-    applicableSubtotal: applicableSubtotal,
-    hasCoupon: !!coupon,
-    subtotalValid: applicableSubtotal > 0
-  });
 
   if (!coupon) {
     return 0;

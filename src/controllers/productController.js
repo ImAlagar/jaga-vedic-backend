@@ -303,6 +303,8 @@ export async function deleteProduct(req, res) {
   }
 }
 
+
+// In productController.js
 export async function deletePrintifyProduct(req, res) {
   try {
     const { printifyProductId, shopId } = req.params;
@@ -313,14 +315,23 @@ export async function deletePrintifyProduct(req, res) {
 
     const result = await productService.deleteProductByPrintifyId(printifyProductId, shopId);
 
-    return successResponse(res, result, "Printify product deleted successfully", HttpStatus.OK);
+    // Return the COMPLETE result without modification
+    return res.status(HttpStatus.OK).json({
+      success: true,
+      ...result  // Spread the entire result to preserve all fields
+    });
+
   } catch (error) {
+    logger.error('Controller error deleting Printify product:', error);
+    
     if (error.message.includes('not found')) {
       return errorResponse(res, "Product not found", HttpStatus.NOT_FOUND);
     }
+    
     return errorResponse(res, error.message, HttpStatus.BAD_REQUEST);
   }
 }
+
 
 export async function bulkDeleteProducts(req, res) {
   try {

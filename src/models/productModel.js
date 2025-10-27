@@ -272,3 +272,43 @@ export async function bulkDeleteProducts(productIds) {
     throw new Error("Database error occurred while bulk deleting products");
   }
 }
+
+
+// In productModel.js - Add these functions
+export async function softDeleteProductById(id) {
+  try {
+    const product = await findProductById(id);
+    return await prisma.product.update({
+      where: { id: parseInt(id) },
+      data: { 
+        isPublished: false, // Use isPublished as soft delete flag
+        description: product ? `DELETED - ${product.description}` : "Deleted product"
+      }
+    });
+  } catch (error) {
+    if (error.code === 'P2025') {
+      throw new Error('Product not found');
+    }
+    console.error("Error soft deleting product by ID:", error);
+    throw new Error("Database error occurred while soft deleting product");
+  }
+}
+
+export async function softDeleteProductByPrintifyId(printifyProductId) {
+  try {
+    const product = await findProductByPrintifyId(printifyProductId);
+    return await prisma.product.update({
+      where: { printifyProductId },
+      data: { 
+        isPublished: false, // Use isPublished as soft delete flag
+        description: product ? `DELETED - ${product.description}` : "Deleted product"
+      }
+    });
+  } catch (error) {
+    if (error.code === 'P2025') {
+      throw new Error('Product not found');
+    }
+    console.error("Error soft deleting product by Printify ID:", error);
+    throw new Error("Database error occurred while soft deleting product");
+  }
+}
