@@ -146,6 +146,7 @@ export async function syncProducts(shopId) {
   }
 }
 
+
 function determinePublishingStatus(product) {
   if (product.is_deleted) return false;
   if (product.visible === false) return false;
@@ -160,6 +161,8 @@ function determinePublishingStatus(product) {
 
   return false;
 }
+
+
 
 export async function getAllProducts(
   page = 1, 

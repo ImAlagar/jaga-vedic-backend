@@ -6,6 +6,7 @@ import { OrderService } from "./orderService.js";
 import { ProductVariantService } from "./productVariantService.js";
 import { getPaymentSuccessEmail } from "../utils/emailTemplates.js";
 import { CalculationService } from "./calculationService.js";
+import { CurrencyService } from "./currencyService.js";
 
 export class PaymentService {
   constructor() {
@@ -15,263 +16,355 @@ export class PaymentService {
     });
     this.orderService = new OrderService();
     this.variantService = new ProductVariantService();
+    this.currencyService = new CurrencyService();
   }
 
-  // 🔥 UPDATED: Create Razorpay order WITHOUT saving to database
-async createRazorpayOrder(orderData, userId) {
-  try {
-    const { items, shippingAddress, orderImage, orderNotes, couponCode } = orderData;
+  // 🔥 UPDATED: Create Razorpay order with DYNAMIC exchange rates
+  async createRazorpayOrder(orderData, userId) {
+    try {
+      const { items, shippingAddress, orderImage, orderNotes, couponCode } = orderData;
 
-    // Validate required fields
-    if (!items || !Array.isArray(items) || items.length === 0) {
-      throw new Error('Order items are required');
-    }
-
-    if (!shippingAddress) {
-      throw new Error('Shipping address is required');
-    }
-
-    // Validate shipping address fields
-    const requiredAddressFields = ['firstName', 'email', 'phone', 'address1', 'city', 'region', 'country', 'zipCode'];
-    const missingFields = requiredAddressFields.filter(field => !shippingAddress[field]);
-    
-    if (missingFields.length > 0) {
-      throw new Error(`Missing required shipping fields: ${missingFields.join(', ')}`);
-    }
-
-    // Ensure lastName exists
-    if (!shippingAddress.lastName) {
-      shippingAddress.lastName = '';
-    }
-
-    // Validate user exists
-    const user = await prisma.user.findUnique({ where: { id: userId } });
-    if (!user) {
-      throw new Error(`User with ID ${userId} not found`);
-    }
-
-    // 🎯 USE CALCULATION SERVICE FOR DYNAMIC TOTALS
-    const calculationService = new CalculationService();
-    
-    // Prepare cart items for calculation
-    const cartItems = items.map(item => ({
-      productId: item.productId,
-      variantId: item.variantId,
-      quantity: item.quantity,
-      price: item.price, // Make sure price is included
-      size: item.size,
-      color: item.color,
-      name: item.name || `Product ${item.productId}`
-    }));
-
-    // Get complete order totals with real-time shipping, tax, and coupon
-    const calculationResult = await calculationService.calculateOrderTotals(
-      cartItems,
-      shippingAddress,
-      couponCode,
-      userId
-    );
-
-    if (!calculationResult.success) {
-      throw new Error(`Calculation failed: ${calculationResult.message}`);
-    }
-
-    const totals = calculationResult.data;
-    
-    logger.info('💰 Dynamic Calculation Results:', {
-      subtotal: totals.subtotal,
-      shipping: totals.shipping,
-      tax: totals.tax,
-      discount: totals.discount,
-      finalTotal: totals.finalTotal,
-      currency: totals.breakdown.currency
-    });
-
-    // 🎯 Prepare validated items for order creation
-    const validatedItems = [];
-    
-    // Validate variants
-    const validationPromises = items.map(item => 
-      this.variantService.validateVariant(item.productId, item.variantId)
-    );
-    
-    const variantResults = await Promise.all(validationPromises);
-
-    for (let i = 0; i < items.length; i++) {
-      const item = items[i];
-      const variantInfo = variantResults[i];
-
-      if (!variantInfo) {
-        throw new Error(`Invalid variant for product ${item.productId}`);
+      // ✅ FIXED: Validate required fields properly
+      if (!items || !Array.isArray(items) || items.length === 0) {
+        throw new Error('Order items are required');
       }
 
-      validatedItems.push({
+      if (!shippingAddress) {
+        throw new Error('Shipping address is required');
+      }
+
+      // Validate shipping address fields
+      const requiredAddressFields = ['firstName', 'email', 'phone', 'address1', 'city', 'region', 'country', 'zipCode'];
+      const missingFields = requiredAddressFields.filter(field => !shippingAddress[field]);
+      
+      if (missingFields.length > 0) {
+        throw new Error(`Missing required shipping fields: ${missingFields.join(', ')}`);
+      }
+
+      // Ensure lastName exists
+      if (!shippingAddress.lastName) {
+        shippingAddress.lastName = '';
+      }
+
+      // Validate user exists
+      const user = await prisma.user.findUnique({ where: { id: userId } });
+      if (!user) {
+        throw new Error(`User with ID ${userId} not found`);
+      }
+
+      // 🎯 USE CALCULATION SERVICE FOR DYNAMIC TOTALS
+      const calculationService = new CalculationService();
+      
+      // Prepare cart items for calculation
+      const cartItems = items.map(item => ({
         productId: item.productId,
+        variantId: item.variantId,
         quantity: item.quantity,
-        price: variantInfo.price,
-        printifyVariantId: item.variantId?.toString(),
-        printifyBlueprintId: variantInfo.blueprintId,
-        printifyPrintProviderId: variantInfo.printProviderId,
+        price: item.price,
         size: item.size,
         color: item.color,
+        name: item.name || `Product ${item.productId}`
+      }));
+
+      // Get complete order totals with real-time shipping, tax, and coupon
+      const calculationResult = await calculationService.calculateOrderTotals(
+        cartItems,
+        shippingAddress,
+        couponCode,
+        userId
+      );
+
+      if (!calculationResult.success) {
+        throw new Error(`Calculation failed: ${calculationResult.message}`);
+      }
+
+      const totals = calculationResult.data;
+
+      // 🎯 DYNAMIC CURRENCY CONVERSION
+      const userCountry = shippingAddress?.country || 'US';
+      const displayCurrency = this.currencyService.getUserCurrencyFromCountry(userCountry);
+      
+      // Get dynamic exchange rate from USD to INR for Razorpay
+      const exchangeRate = await this.getExchangeRate('USD', 'INR');
+      
+      logger.info('Dynamic exchange rate fetched:', {
+        from: 'USD',
+        to: 'INR',
+        rate: exchangeRate,
+        userCountry: userCountry,
+        displayCurrency: displayCurrency
       });
+
+      // Convert USD to INR for Razorpay
+      const finalAmountINR = totals.finalTotal * exchangeRate;
+      
+      // Validate the final amount
+      if (finalAmountINR <= 0) {
+        throw new Error(`Invalid calculated amount: ${finalAmountINR} INR`);
+      }
+
+      // 🎯 Prepare validated items for order creation
+      const validatedItems = [];
+      
+      // Validate variants
+      const validationPromises = items.map(item => 
+        this.variantService.validateVariant(item.productId, item.variantId)
+      );
+      
+      const variantResults = await Promise.all(validationPromises);
+
+      for (let i = 0; i < items.length; i++) {
+        const item = items[i];
+        const variantInfo = variantResults[i];
+
+        if (!variantInfo) {
+          throw new Error(`Invalid variant for product ${item.productId}`);
+        }
+
+        validatedItems.push({
+          productId: item.productId,
+          quantity: item.quantity,
+          price: variantInfo.price,
+          printifyVariantId: item.variantId?.toString(),
+          printifyBlueprintId: variantInfo.blueprintId,
+          printifyPrintProviderId: variantInfo.printProviderId,
+          size: item.size,
+          color: item.color,
+        });
+      }
+
+      // 🎯 Convert all amounts to display currency for user visibility
+      const displayAmounts = await this.currencyService.convertOrderCalculations(
+        {
+          subtotal: totals.subtotal,
+          shipping: totals.shipping,
+          tax: totals.tax,
+          discount: totals.discount,
+          finalTotal: totals.finalTotal
+        },
+        displayCurrency
+      );
+
+      // 🎯 Create temporary order data with ALL calculated amounts
+      const tempOrderData = {
+        userId,
+        items: validatedItems,
+        shippingAddress,
+        orderImage: orderImage || null,
+        orderNotes: orderNotes || null,
+        couponCode: totals.breakdown.couponCode,
+        subtotalAmount: totals.subtotal,
+        shippingCost: totals.shipping,
+        taxAmount: totals.tax,
+        taxRate: totals.breakdown.taxRate,
+        discountAmount: totals.discount,
+        finalAmountUSD: totals.finalTotal,
+        finalAmountINR: finalAmountINR,
+        displayAmount: displayAmounts.finalTotal,
+        displayCurrency: displayCurrency,
+        exchangeRate: exchangeRate,
+        userCountry: userCountry,
+        // Include calculation details for reference
+        calculationDetails: {
+          isFreeShipping: totals.shippingDetails.isFree,
+          freeShippingThreshold: totals.shippingDetails.freeShippingThreshold,
+          taxCountry: totals.taxDetails.country,
+          couponValid: totals.couponDetails.isValid
+        }
+      };
+
+      logger.info('Creating Razorpay order with dynamic calculation and exchange rates:', {
+        userId,
+        itemCount: validatedItems.length,
+        finalAmountUSD: totals.finalTotal,
+        finalAmountINR: finalAmountINR,
+        displayAmount: displayAmounts.finalTotal,
+        displayCurrency: displayCurrency,
+        exchangeRate: exchangeRate,
+        includesShipping: totals.shipping,
+        includesTax: totals.tax,
+        includesDiscount: totals.discount
+      });
+
+      // Add validation before creating Razorpay order
+      const razorpayAmountInPaise = Math.round(finalAmountINR * 100);
+      if (razorpayAmountInPaise < 100) { // Minimum 1 INR in paise
+        throw new Error(`Amount too low for Razorpay: ${finalAmountINR} INR (${razorpayAmountInPaise} paise)`);
+      }
+
+      const razorpayOrder = await this.razorpay.orders.create({
+        amount: razorpayAmountInPaise,
+        currency: "INR",
+        receipt: `order_${Date.now()}`,
+        notes: {
+          tempOrderData: JSON.stringify(tempOrderData),
+          userId: userId.toString(),
+          timestamp: new Date().toISOString(),
+          calculationMethod: 'dynamic_with_shipping_tax',
+          exchangeRate: exchangeRate.toString(),
+          debugAmounts: JSON.stringify({
+            finalTotalUSD: totals.finalTotal,
+            exchangeRate: exchangeRate,
+            finalAmountINR: finalAmountINR,
+            razorpayAmountPaise: razorpayAmountInPaise,
+            displayCurrency: displayCurrency,
+            displayAmount: displayAmounts.finalTotal
+          })
+        }
+      });
+
+      return {
+        id: razorpayOrder.id,
+        amount: razorpayOrder.amount,
+        currency: razorpayOrder.currency,
+        key: process.env.RAZORPAY_KEY_ID,
+        displayAmount: displayAmounts.finalTotal,
+        displayCurrency: displayCurrency,
+        userCountry: userCountry,
+        exchangeRate: exchangeRate,
+        calculationSummary: {
+          subtotal: displayAmounts.subtotal,
+          shipping: displayAmounts.shipping,
+          tax: displayAmounts.tax,
+          discount: displayAmounts.discount,
+          finalTotal: displayAmounts.finalTotal,
+          originalCurrency: 'USD',
+          convertedCurrency: displayCurrency
+        },
+        formattedAmounts: {
+          subtotal: this.currencyService.formatPriceForDisplay(displayAmounts.subtotal, displayCurrency),
+          shipping: this.currencyService.formatPriceForDisplay(displayAmounts.shipping, displayCurrency),
+          tax: this.currencyService.formatPriceForDisplay(displayAmounts.tax, displayCurrency),
+          discount: this.currencyService.formatPriceForDisplay(displayAmounts.discount, displayCurrency),
+          finalTotal: this.currencyService.formatPriceForDisplay(displayAmounts.finalTotal, displayCurrency)
+        }
+      };
+
+    } catch (error) {
+      console.error('❌ RAZORPAY ORDER - Detailed creation failed:', {
+        error: error.message,
+        stack: error.stack,
+        userId: userId,
+        orderData: orderData ? {
+          hasItems: !!orderData.items,
+          itemsCount: orderData.items?.length,
+          hasShippingAddress: !!orderData.shippingAddress
+        } : 'No orderData'
+      });
+      throw error;
     }
-
-    // 🎯 Set up currency and exchange
-    const userCountry = shippingAddress?.country || 'US';
-    const displayCurrency = userCountry === 'IN' ? 'INR' : 'USD';
-    const exchangeRate = 87.8; // You might want to get this dynamically
-
-    // Convert USD to INR for Razorpay
-    const finalAmountINR = Math.round(totals.finalTotal * exchangeRate);
-
-    // 🎯 Create temporary order data with ALL calculated amounts
-    const tempOrderData = {
-      userId,
-      items: validatedItems,
-      shippingAddress,
-      orderImage: orderImage || null,
-      orderNotes: orderNotes || null,
-      couponCode: totals.breakdown.couponCode,
-      subtotalAmount: totals.subtotal,
-      shippingCost: totals.shipping,
-      taxAmount: totals.tax,
-      taxRate: totals.breakdown.taxRate,
-      discountAmount: totals.discount,
-      finalAmountUSD: totals.finalTotal,
-      finalAmountINR: finalAmountINR,
-      displayCurrency: displayCurrency,
-      exchangeRate: exchangeRate,
-      userCountry: userCountry,
-      // Include calculation details for reference
-      calculationDetails: {
-        isFreeShipping: totals.shippingDetails.isFree,
-        freeShippingThreshold: totals.shippingDetails.freeShippingThreshold,
-        taxCountry: totals.taxDetails.country,
-        couponValid: totals.couponDetails.isValid
-      }
-    };
-
-    logger.info('Creating Razorpay order with dynamic calculation:', {
-      userId,
-      itemCount: validatedItems.length,
-      finalAmountUSD: totals.finalTotal,
-      finalAmountINR: finalAmountINR,
-      includesShipping: totals.shipping,
-      includesTax: totals.tax,
-      includesDiscount: totals.discount
-    });
-
-    // Create Razorpay order
-    const razorpayOrder = await this.razorpay.orders.create({
-      amount: Math.round(finalAmountINR * 100), // Convert to paise
-      currency: "INR",
-      receipt: `order_${Date.now()}`,
-      notes: {
-        tempOrderData: JSON.stringify(tempOrderData),
-        userId: userId.toString(),
-        timestamp: new Date().toISOString(),
-        calculationMethod: 'dynamic_with_shipping_tax'
-      }
-    });
-
-    logger.info(`✅ Razorpay order created: ${razorpayOrder.id} - Amount: ${finalAmountINR} INR`);
-
-    return {
-      id: razorpayOrder.id,
-      amount: razorpayOrder.amount,
-      currency: razorpayOrder.currency,
-      key: process.env.RAZORPAY_KEY_ID,
-      displayAmount: totals.finalTotal, // USD amount for display
-      displayCurrency: displayCurrency,
-      userCountry: userCountry,
-      calculationSummary: {
-        subtotal: totals.subtotal,
-        shipping: totals.shipping,
-        tax: totals.tax,
-        discount: totals.discount,
-        finalTotal: totals.finalTotal
-      }
-    };
-
-  } catch (error) {
-    logger.error(`❌ Razorpay order creation failed: ${error.message}`);
-    throw error;
   }
-}
 
-async verifyRazorpayPayment(paymentData, userId) {
-  const { razorpay_payment_id, razorpay_order_id, razorpay_signature } = paymentData;
-
-  try {
-    logger.info(`🔄 Verifying payment: ${razorpay_payment_id} for user: ${userId}`);
-
-    // 🎯 STEP 1: Quick signature verification (FAST)
-    const expectedSignature = crypto
-      .createHmac("sha256", process.env.RAZORPAY_KEY_SECRET)
-      .update(razorpay_order_id + "|" + razorpay_payment_id)
-      .digest("hex");
-
-    if (expectedSignature !== razorpay_signature) {
-      throw new Error("Payment signature verification failed");
+  // 🔥 NEW: Get real-time exchange rate
+  async getExchangeRate(fromCurrency = 'USD', toCurrency = 'INR') {
+    try {
+      const rate = await this.currencyService.convertPrice(1, fromCurrency, toCurrency);
+      logger.info(`Exchange rate fetched: 1 ${fromCurrency} = ${rate} ${toCurrency}`);
+      return rate;
+    } catch (error) {
+      logger.warn('Failed to fetch dynamic exchange rate, using fallback:', error.message);
+      // Fallback to default rates
+      const defaultRates = this.currencyService.getDefaultRates();
+      return defaultRates[toCurrency] || 88.72; // Default INR rate
     }
-
-    // 🎯 STEP 2: Get Razorpay order with timeout
-    const razorpayOrder = await Promise.race([
-      this.razorpay.orders.fetch(razorpay_order_id),
-      new Promise((_, reject) => 
-        setTimeout(() => reject(new Error("Razorpay API timeout")), 10000) // 10s timeout
-      )
-    ]);
-    
-    if (!razorpayOrder.notes || !razorpayOrder.notes.tempOrderData) {
-      throw new Error("Invalid order data in payment");
-    }
-
-    const tempOrderData = JSON.parse(razorpayOrder.notes.tempOrderData);
-
-    // 🎯 STEP 3: Quick user validation
-    const tempUserId = parseInt(tempOrderData.userId);
-    const currentUserId = parseInt(userId);
-
-    if (tempUserId !== currentUserId) {
-      logger.error(`❌ User mismatch - Temp: ${tempUserId}, Current: ${currentUserId}`);
-      throw new Error("Payment user mismatch");
-    }
-
-    logger.info(`✅ Payment verified, creating order for user: ${userId}`);
-
-    // 🎯 STEP 4: Create order but don't wait for Printify (make it async)
-    // Return success immediately and process order in background
-    this.orderService.createOrderFromPayment(
-      userId, 
-      tempOrderData, 
-      razorpay_payment_id, 
-      razorpay_order_id
-    ).catch(error => {
-      logger.error(`❌ Background order creation failed: ${error.message}`);
-    });
-
-    logger.info(`✅ Payment verified successfully, order processing in background`);
-
-    return {
-      success: true,
-      paymentId: razorpay_payment_id,
-      orderId: razorpay_order_id,
-      message: "Payment verified successfully! Your order is being processed."
-    };
-
-  } catch (error) {
-    logger.error(`❌ Payment verification failed: ${error.message}`);
-    
-    // 🎯 Better error handling for timeout
-    if (error.message.includes('timeout') || error.code === 'ECONNABORTED') {
-      throw new Error("Payment verification is taking longer than expected. Your order is being processed in the background. Please check your orders page in a few minutes.");
-    }
-    
-    throw error;
   }
-}
+
+  // 🔥 NEW: Get currency information for frontend
+  async getCurrencyInfo(countryCode) {
+    try {
+      const currency = this.currencyService.getUserCurrencyFromCountry(countryCode);
+      const symbol = this.currencyService.getCurrencySymbol(currency);
+      const rates = await this.currencyService.getExchangeRates('USD');
+      
+      return {
+        currency,
+        symbol,
+        exchangeRates: rates,
+        supported: this.currencyService.validateCurrency(currency) === currency
+      };
+    } catch (error) {
+      logger.error('Failed to get currency info:', error);
+      return {
+        currency: 'USD',
+        symbol: '$',
+        exchangeRates: this.currencyService.getDefaultRates(),
+        supported: true
+      };
+    }
+  }
+
+  // Keep your existing methods (verifyRazorpayPayment, handleWebhookEvent, etc.) the same
+  async verifyRazorpayPayment(paymentData, userId) {
+    const { razorpay_payment_id, razorpay_order_id, razorpay_signature } = paymentData;
+
+    try {
+      // 🎯 STEP 1: Quick signature verification (FAST)
+      const expectedSignature = crypto
+        .createHmac("sha256", process.env.RAZORPAY_KEY_SECRET)
+        .update(razorpay_order_id + "|" + razorpay_payment_id)
+        .digest("hex");
+
+      if (expectedSignature !== razorpay_signature) {
+        throw new Error("Payment signature verification failed");
+      }
+
+      // 🎯 STEP 2: Get Razorpay order with timeout
+      const razorpayOrder = await Promise.race([
+        this.razorpay.orders.fetch(razorpay_order_id),
+        new Promise((_, reject) => 
+          setTimeout(() => reject(new Error("Razorpay API timeout")), 10000)
+        )
+      ]);
+
+      if (!razorpayOrder.notes || !razorpayOrder.notes.tempOrderData) {
+        throw new Error("Invalid order data in payment");
+      }
+
+      const tempOrderData = JSON.parse(razorpayOrder.notes.tempOrderData);
+
+      // 🎯 STEP 3: Quick user validation
+      const tempUserId = parseInt(tempOrderData.userId);
+      const currentUserId = parseInt(userId);
+
+      if (tempUserId !== currentUserId) {
+        logger.error(`❌ User mismatch - Temp: ${tempUserId}, Current: ${currentUserId}`);
+        throw new Error("Payment user mismatch");
+      }
+
+      // 🎯 STEP 4: Create order but don't wait for Printify (make it async)
+      this.orderService.createOrderFromPayment(
+        userId, 
+        tempOrderData, 
+        razorpay_payment_id, 
+        razorpay_order_id
+      ).catch(error => {
+        console.error('❌ PAYMENT VERIFICATION - Background order creation failed:', error);
+        logger.error(`❌ Background order creation failed: ${error.message}`);
+      });
+
+      return {
+        success: true,
+        paymentId: razorpay_payment_id,
+        orderId: razorpay_order_id,
+        message: "Payment verified successfully! Your order is being processed."
+      };
+
+    } catch (error) {
+      console.error('❌ PAYMENT VERIFICATION - Detailed failure:', {
+        error: error.message,
+        stack: error.stack,
+        paymentId: razorpay_payment_id,
+        orderId: razorpay_order_id,
+        userId: userId
+      });
+      
+      if (error.message.includes('timeout') || error.code === 'ECONNABORTED') {
+        throw new Error("Payment verification is taking longer than expected. Your order is being processed in the background. Please check your orders page in a few minutes.");
+      }
+      
+      throw error;
+    }
+  }
 
   // Handle webhook events
   async handleWebhookEvent(webhookData) {
@@ -302,47 +395,48 @@ async verifyRazorpayPayment(paymentData, userId) {
   }
 
   async sendPaymentSuccessEmail(order) {
-  try {
-    // Get complete order details for email
-    const completeOrder = await prisma.order.findUnique({
-      where: { id: order.id },
-      include: {
-        items: {
-          include: {
-            product: {
-              select: {
-                name: true,
-                images: true
+    try {
+      // Get complete order details for email
+      const completeOrder = await prisma.order.findUnique({
+        where: { id: order.id },
+        include: {
+          items: {
+            include: {
+              product: {
+                select: {
+                  name: true,
+                  images: true
+                }
               }
             }
-          }
-        },
-        user: {
-          select: {
-            email: true,
-            name: true
+          },
+          user: {
+            select: {
+              email: true,
+              name: true
+            }
           }
         }
+      });
+
+      if (!completeOrder) {
+        logger.error(`Order not found for email: ${order.id}`);
+        return;
       }
-    });
 
-    if (!completeOrder) {
-      logger.error(`Order not found for email: ${order.id}`);
-      return;
+      const emailContent = await getPaymentSuccessEmail(completeOrder);
+      // Make sure sendMail is imported or available
+      await sendMail(
+        completeOrder.user.email,
+        `Payment Successful - Order #${completeOrder.id}`,
+        emailContent
+      );
+      
+      logger.info(`✅ Payment success email sent for order ${completeOrder.id}`);
+    } catch (error) {
+      logger.error(`❌ Payment success email failed for order ${order?.id}:`, error);
+      // Don't throw error to prevent breaking payment flow
     }
-
-    const emailContent = await getPaymentSuccessEmail(completeOrder);
-    await sendMail(
-      completeOrder.user.email,
-      `Payment Successful - Order #${completeOrder.id}`,
-      emailContent
-    );
-    
-    logger.info(`✅ Payment success email sent for order ${completeOrder.id}`);
-  } catch (error) {
-    logger.error(`❌ Payment success email failed for order ${order?.id}:`, error);
-    // Don't throw error to prevent breaking payment flow
-  }
   }
 
   async getPaymentStatus(orderId, userId) {
@@ -383,5 +477,4 @@ async verifyRazorpayPayment(paymentData, userId) {
       return false;
     }
   }
-
 }

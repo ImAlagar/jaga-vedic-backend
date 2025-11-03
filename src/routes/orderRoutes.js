@@ -58,6 +58,6 @@ router.post("/:orderId/reset-refund", verifyAdminToken, resetRefundStatus);
 router.post("/bulk-sync", verifyAdminToken, bulkSyncOrders);
 
 // 👇 ORDER DETAILS ROUTES - Must come LAST (most specific route)
-router.get("/:orderId", verifyUserToken, getOrderById);
+router.get("/:orderId", getOrderById);
 
 export default router;

@@ -325,8 +325,19 @@ model OrderItem {
   printifyVariantId       String?
   printifyBlueprintId     Int?
   printifyPrintProviderId Int?
-  size                 String?
-  color                String?
+  
+  // 🔥 FLEXIBLE SELECTION FIELDS FOR DIFFERENT PRODUCT TYPES
+  size                 String?    // For clothing, mugs, etc.
+  color                String?    // For clothing
+  phoneModel           String?    // For phone cases
+  finishType           String?    // For phone cases, accessories
+  material             String?    // For home & living
+  style                String?    // For various products
+  customOption1        String?    // Generic field for any custom option
+  customOption2        String?    // Generic field for any custom option
+  
+  // Store the raw variant title for reference
+  variantTitle         String?
 
   order   Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
   product Product @relation(fields: [productId], references: [id])

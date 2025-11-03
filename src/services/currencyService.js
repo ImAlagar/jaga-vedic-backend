@@ -167,7 +167,7 @@ export class CurrencyService {
    */
   getDefaultRates() {
     return {
-      'USD': 1,      'EUR': 0.92,    'GBP': 0.79,    'INR': 87.8,
+      'USD': 1,      'EUR': 0.92,    'GBP': 0.79,    'INR': 88.72,
       'CAD': 1.36,   'AUD': 1.52,    'JPY': 149.50,  'CNY': 7.24,
       'BRL': 4.92,   'MXN': 17.25,   'RUB': 92.50,   'KRW': 1320.75,
       'SGD': 1.34,   'AED': 3.67,    'SAR': 3.75,    'ZAR': 18.90,

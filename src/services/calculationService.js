@@ -10,7 +10,7 @@ export class CalculationService {
    */
   async calculateOrderTotals(cartItems, shippingAddress, couponCode = '', userId = null) {
     try {
-      
+ 
       // Validate inputs
       if (!cartItems || !Array.isArray(cartItems) || cartItems.length === 0) {
         throw new Error('Cart items are required');
@@ -83,7 +83,11 @@ export class CalculationService {
       };
 
     } catch (error) {
-      console.error('❌ Calculation error:', error);
+      console.error('❌ CALCULATION SERVICE - Detailed error:', {
+        message: error.message,
+        stack: error.stack,
+        input: { cartItems, shippingAddress, couponCode, userId }
+      });
       return {
         success: false,
         message: error.message,
@@ -96,11 +100,13 @@ export class CalculationService {
    * Calculate subtotal from cart items
    */
   calculateSubtotal(cartItems) {
-    return cartItems.reduce((total, item) => {
+    const subtotal = cartItems.reduce((total, item) => {
       const price = parseFloat(item.price) || 0;
       const quantity = parseInt(item.quantity) || 1;
       return total + (price * quantity);
     }, 0);
+    
+    return subtotal;
   }
 
   /**
@@ -108,6 +114,8 @@ export class CalculationService {
    */
   async getRealTimeShipping(cartItems, shippingAddress) {
     try {
+
+
       const validatedItems = cartItems.map(item => ({
         productId: parseInt(item.productId),
         variantId: parseInt(item.variantId),
@@ -122,7 +130,8 @@ export class CalculationService {
         shippingAddress.region || null
       );
 
-      return {
+
+      const result = {
         totalShipping: this.roundCurrency(shippingData.totalShipping || 0),
         originalShipping: this.roundCurrency(shippingData.originalShipping || shippingData.totalShipping || 0),
         isFree: shippingData.isFree || false,
@@ -134,8 +143,10 @@ export class CalculationService {
         items: shippingData.items || []
       };
 
+      return result;
+
     } catch (error) {
-      console.error('❌ Shipping calculation failed, using fallback:', error);
+      console.error('❌ SHIPPING CALCULATION - Failed, using fallback:', error);
       return this.getFallbackShipping(cartItems, shippingAddress.country);
     }
   }
@@ -145,6 +156,8 @@ export class CalculationService {
    */
   async calculateTaxAmount(cartItems, subtotal, shippingCost, shippingAddress) {
     try {
+
+
       const taxData = {
         items: cartItems.map(item => ({
           productId: parseInt(item.productId),
@@ -159,17 +172,19 @@ export class CalculationService {
       const taxResult = await taxService.calculateTax(taxData);
 
       if (taxResult.success && taxResult.data) {
-        return {
+        const result = {
           taxAmount: this.roundCurrency(taxResult.data.taxAmount || 0),
           taxRate: taxResult.data.taxRate || 0,
           appliesToShipping: taxResult.data.appliesToShipping || false
         };
+        
+        return result;
       } else {
         throw new Error(taxResult.message || 'Tax calculation failed');
       }
 
     } catch (error) {
-      console.error('❌ Tax calculation failed, using fallback:', error);
+      console.error('❌ TAX CALCULATION - Failed, using fallback:', error);
       return this.getFallbackTax(subtotal, shippingAddress.country);
     }
   }
@@ -177,88 +192,95 @@ export class CalculationService {
   /**
    * Apply coupon discount
    */
-async applyCoupon(cartItems, subtotal, couponCode, userId, country) {
-  try {
-    if (!couponCode || couponCode.trim() === '') {
+  async applyCoupon(cartItems, subtotal, couponCode, userId, country) {
+    try {
+
+
+      if (!couponCode || couponCode.trim() === '') {
+        const result = {
+          discountAmount: 0,
+          couponCode: null,
+          message: 'No coupon applied',
+          isValid: true,
+          discountType: null
+        };
+        return result;
+      }
+
+      // Get products for coupon validation
+      const productIds = cartItems.map(item => parseInt(item.productId));
+      const products = await prisma.product.findMany({
+        where: { id: { in: productIds } }
+      });
+
+      const validationItems = cartItems.map(item => {
+        const product = products.find(p => p.id === parseInt(item.productId));
+        return {
+          productId: parseInt(item.productId),
+          variantId: parseInt(item.variantId),
+          quantity: parseInt(item.quantity) || 1,
+          price: parseFloat(item.price) || 0,
+          product: product
+        };
+      });
+
+      const couponValidation = await couponService.validateCoupon(
+        couponCode.trim(),
+        userId,
+        validationItems,
+        subtotal,
+        country
+      );
+
+
+      let finalDiscount = 0;
+      let message = 'No coupon applied';
+      
+      if (couponValidation.isValid && couponValidation.coupon) {
+        // 🔥 CORRECT: Get discount from coupon object
+        finalDiscount = couponValidation.coupon.discountAmount || 0;
+        message = finalDiscount > 0 ? 
+          `Coupon applied successfully - $${finalDiscount} discount` : 
+          'Coupon valid but no discount applicable';
+      } else {
+        message = couponValidation.error || 'Invalid coupon';
+      }
+
+      const result = {
+        discountAmount: this.roundCurrency(finalDiscount),
+        couponCode: couponValidation.coupon?.code || couponCode,
+        message: message,
+        isValid: couponValidation.isValid,
+        discountType: couponValidation.coupon?.discountType
+      };
+
+      return result;
+
+    } catch (error) {
+      console.error('❌ COUPON CALCULATION - Failed:', error);
       return {
         discountAmount: 0,
-        couponCode: null,
-        message: 'No coupon applied',
-        isValid: true,
+        couponCode: couponCode,
+        message: 'Coupon validation failed',
+        isValid: false,
         discountType: null
       };
     }
-
-    // Get products for coupon validation
-    const productIds = cartItems.map(item => parseInt(item.productId));
-    const products = await prisma.product.findMany({
-      where: { id: { in: productIds } }
-    });
-
-    const validationItems = cartItems.map(item => {
-      const product = products.find(p => p.id === parseInt(item.productId));
-      return {
-        productId: parseInt(item.productId),
-        variantId: parseInt(item.variantId),
-        quantity: parseInt(item.quantity) || 1,
-        price: parseFloat(item.price) || 0,
-        product: product
-      };
-    });
-
-    const couponValidation = await couponService.validateCoupon(
-      couponCode.trim(),
-      userId,
-      validationItems,
-      subtotal,
-      country
-    );
-
-
-    let finalDiscount = 0;
-    let message = 'No coupon applied';
-    
-    if (couponValidation.isValid && couponValidation.coupon) {
-      // 🔥 CORRECT: Get discount from coupon object
-      finalDiscount = couponValidation.coupon.discountAmount || 0;
-      message = finalDiscount > 0 ? 
-        `Coupon applied successfully - $${finalDiscount} discount` : 
-        'Coupon valid but no discount applicable';
-    } else {
-      message = couponValidation.error || 'Invalid coupon';
-    }
-
-    return {
-      discountAmount: this.roundCurrency(finalDiscount),
-      couponCode: couponValidation.coupon?.code || couponCode,
-      message: message,
-      isValid: couponValidation.isValid,
-      discountType: couponValidation.coupon?.discountType
-    };
-
-  } catch (error) {
-    console.error('❌ Coupon application failed:', error);
-    return {
-      discountAmount: 0,
-      couponCode: couponCode,
-      message: 'Coupon validation failed',
-      isValid: false,
-      discountType: null
-    };
   }
-}
 
   /**
    * Calculate final totals
    */
   calculateFinalTotals(subtotal, shipping, tax, discount) {
+
+
     // Calculate taxable amount (subtotal - discount)
     const taxableAmount = Math.max(0, subtotal - discount);
     
     // Final total = (Subtotal - Discount) + Shipping + Tax
     const finalTotal = taxableAmount + shipping + tax;
 
-    return {
+    const result = {
       subtotal: this.roundCurrency(subtotal),
       shipping: this.roundCurrency(shipping),
       tax: this.roundCurrency(tax),
@@ -266,13 +288,18 @@ async applyCoupon(cartItems, subtotal, couponCode, userId, country) {
       finalTotal: this.roundCurrency(finalTotal),
       taxableAmount: this.roundCurrency(taxableAmount)
     };
+
+
+
+    return result;
   }
 
   /**
    * Round to 2 decimal places for currency - FIXED VERSION
    */
   roundCurrency(amount) {
-    return Math.round((amount + Number.EPSILON) * 100) / 100;
+    const rounded = Math.round((Number(amount) + Number.EPSILON) * 100) / 100;
+    return rounded;
   }
 
   /**
@@ -284,7 +311,7 @@ async applyCoupon(cartItems, subtotal, couponCode, userId, country) {
     const baseShipping = this.getBaseShippingRate(country);
     const shippingCost = isFree ? 0 : baseShipping;
 
-    return {
+    const result = {
       totalShipping: this.roundCurrency(shippingCost),
       originalShipping: this.roundCurrency(baseShipping),
       isFree: isFree,
@@ -295,6 +322,8 @@ async applyCoupon(cartItems, subtotal, couponCode, userId, country) {
       message: isFree ? '🎉 Free shipping applied!' : `Add $${(50 - subtotal).toFixed(2)} for free shipping!`,
       items: []
     };
+
+    return result;
   }
 
   /**
@@ -306,7 +335,8 @@ async applyCoupon(cartItems, subtotal, couponCode, userId, country) {
       'DE': 7.99, 'FR': 7.99, 'IT': 7.99, 'ES': 7.99, 'JP': 9.99,
       'default': 9.99
     };
-    return rates[country] || rates.default;
+    const rate = rates[country] || rates.default;
+    return rate;
   }
 
   /**
@@ -322,11 +352,13 @@ async applyCoupon(cartItems, subtotal, couponCode, userId, country) {
     const taxRate = taxRates[country] || taxRates.default;
     const taxAmount = subtotal * taxRate;
 
-    return {
+    const result = {
       taxAmount: this.roundCurrency(taxAmount),
       taxRate: taxRate,
       appliesToShipping: false
     };
+
+    return result;
   }
 }
 

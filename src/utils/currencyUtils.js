@@ -9,7 +9,7 @@ export const COUNTRY_CURRENCY_MAP = {
 };
 
 export const FALLBACK_RATES = {
-  USD: 1, EUR: 0.92, GBP: 0.79, INR: 83.25, CAD: 1.36,
+  USD: 1, EUR: 0.92, GBP: 0.79, INR: 88.72, CAD: 1.36,
   AUD: 1.52, JPY: 149.50, CNY: 7.24, BRL: 4.92, MXN: 17.25,
   RUB: 92.50, TRY: 28.75, ZAR: 18.90, SGD: 1.34
 };

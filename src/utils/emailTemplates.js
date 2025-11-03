@@ -1,5 +1,4 @@
-// utils/emailTemplates.js
-
+import { CreateOrderDto, OrderResponseDto } from '../dto/orderDto.js';
 /**
  * Currency conversion helper
  * Implement with your preferred currency API
@@ -411,24 +410,25 @@ export async function getOrderConfirmationEmail(order) {
 
   const convertToLocal = (usdAmount) => {
     if (userCurrency === 'USD') return usdAmount;
-    const exchangeRate = order.exchangeRate || 83;
+    const exchangeRate = order.exchangeRate || 88.72;
     return (usdAmount || 0) * exchangeRate;
   };
 
-  const formatPrice = (amount) => {
-    return parseFloat(amount || 0).toLocaleString('en-IN', {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    });
-  };
+const formatPrice = (amount) => {
+  const numAmount = parseFloat(amount || 0);
+  return numAmount.toLocaleString('en-IN', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+};
 
   // ✅ CORRECT CALCULATIONS (Same as admin email)
-  const localTotal = formatPrice(roundAmount(order.totalAmount));
-  const localSubtotal = formatPrice(roundAmount(convertToLocal(order.subtotalAmount || 0)));
-  const shippingCost = order.shipping?.shippingCost || order.shippingCost || 0;
-  const localShipping = formatPrice(roundAmount(convertToLocal(shippingCost)));
-  const localTax = formatPrice(roundAmount(convertToLocal(order.taxAmount || 0)));
-  const localDiscount = formatPrice(roundAmount(convertToLocal(order.discountAmount || 0)));
+const localTotal = formatPrice(order.totalAmount);
+const localSubtotal = formatPrice(convertToLocal(order.subtotalAmount || 0));
+const shippingCost = order.shipping?.shippingCost || order.shippingCost || 0;
+const localShipping = formatPrice(convertToLocal(shippingCost));
+const localTax = formatPrice(convertToLocal(order.taxAmount || 0));
+const localDiscount = formatPrice(convertToLocal(order.discountAmount || 0));
 
   const orderNumber = order.id;
 
@@ -463,27 +463,55 @@ export async function getOrderConfirmationEmail(order) {
     </div>
   `;
 
-  // ✅ ITEMS LIST (compact and readable)
-  const itemsHtml = order.items
-    .map((item) => {
-      const convertedPrice = convertToLocal(item.price || 0);
-      const itemTotal = formatPrice(roundAmount(convertedPrice * (item.quantity || 1)));
-      const productImage = item.product?.images?.[0] || '/images/placeholder-product.jpg';
-      const productName = item.product?.name || 'Product';
-      const qty = item.quantity || 1;
+// ✅ SIMPLER FIX: Show ALL available selection data
+// ✅ IMPROVED ITEMS DISPLAY with proper data handling
+const itemsHtml = order.items
+  .map((item) => {
+    const convertedPrice = convertToLocal(item.price || 0);
+    const itemTotal = formatPrice(convertedPrice * (item.quantity || 1));
+    const productImage = item.product?.images?.[0] || '/images/placeholder-product.jpg';
+    const productName = item.product?.name || 'Product';
+    const qty = item.quantity || 1;
+    
+    // ✅ SMART SELECTION DISPLAY - Use OrderResponseDto logic
+    const displayText = OrderResponseDto.getItemDisplayText(item);
+    
+    // ✅ ALTERNATIVE: Direct field access with fallbacks
+    const selectionDetails = [];
+    
+    // Phone case specific fields
+    if (item.phoneModel) selectionDetails.push(`<strong>Model:</strong> ${item.phoneModel}`);
+    if (item.finishType) selectionDetails.push(`<strong>Finish:</strong> ${item.finishType}`);
+    
+    // General product fields
+    if (item.size && item.size !== 'Standard' && item.size !== 'N/A') {
+      selectionDetails.push(`<strong>Size:</strong> ${item.size}`);
+    }
+    if (item.color && item.color !== 'Default' && item.color !== 'N/A') {
+      selectionDetails.push(`<strong>Color:</strong> ${item.color}`);
+    }
+    
+    // Material and other fields
+    if (item.material) selectionDetails.push(`<strong>Material:</strong> ${item.material}`);
+    if (item.style) selectionDetails.push(`<strong>Style:</strong> ${item.style}`);
+    
+    const selectionText = selectionDetails.length > 0 
+      ? `<div class="item-selections" style="margin-top: 5px; font-size: 13px; color: #666;">${selectionDetails.join(' • ')}</div>`
+      : '';
 
-      return `
-        <div class="order-item">
-          <img src="${productImage}" alt="${productName}" class="item-image" />
-          <div class="item-info">
-            <div class="item-name">${productName}</div>
-            <div class="item-meta">Qty: ${qty}</div>
-            <div class="item-price">${currencySymbol}${itemTotal}</div>
-          </div>
+    return `
+      <div class="order-item">
+        <img src="${productImage}" alt="${productName}" class="item-image" />
+        <div class="item-info">
+          <div class="item-name">${productName}</div>
+          ${selectionText}
+          <div class="item-meta">Qty: ${qty}</div>
+          <div class="item-price">${currencySymbol}${itemTotal}</div>
         </div>
-      `;
-    })
-    .join('');
+      </div>
+    `;
+  })
+  .join('');
 
   return `
     <!DOCTYPE html>
@@ -737,7 +765,7 @@ export async function getPaymentSuccessEmail(order, userCurrency = 'USD') {
   // ✅ CORRECT CONVERSION FUNCTION
   const convertToLocal = (usdAmount) => {
     if (displayCurrency === 'USD') return usdAmount;
-    const exchangeRate = order.exchangeRate || 83;
+    const exchangeRate = order.exchangeRate || 88.7;
     return (usdAmount || 0) * exchangeRate;
   };
 
@@ -850,7 +878,7 @@ export async function getPaymentSuccessEmail(order, userCurrency = 'USD') {
     <div style="margin-top: 10px; padding: 10px; background: #f0f8ff; border-radius: 5px; border-left: 4px solid #28a745;">
       <small>
         <strong>💱 Currency Note:</strong> 
-        Prices converted from USD to ${displayCurrency} at rate: 1 USD = ${order.exchangeRate || 83} ${displayCurrency}
+        Prices converted from USD to ${displayCurrency} at rate: 1 USD = ${order.exchangeRate || 88.72} ${displayCurrency}
       </small>
     </div>
   ` : '';
@@ -1177,35 +1205,36 @@ export async function getAdminNewOrderEmail(order) {
   const userCurrency = order.currency || 'USD';
   const currencySymbol = getCurrencySymbol(userCurrency);
   
-  // ✅ USE SAME LOGIC AS ORDER CONFIRMATION EMAIL FOR CONSISTENCY
+  // Price calculation logic (same as customer email)
   const roundAmount = (amount) => {
     return Math.round(parseFloat(amount || 0));
   };
 
   const convertToLocal = (usdAmount) => {
     if (userCurrency === 'USD') return usdAmount;
-    const exchangeRate = order.exchangeRate || 83;
+    const exchangeRate = order.exchangeRate || 88.72;
     return (usdAmount || 0) * exchangeRate;
   };
 
-  const formatPrice = (amount) => {
-    return parseFloat(amount || 0).toLocaleString('en-IN', {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    });
-  };
+const formatPrice = (amount) => {
+  const numAmount = parseFloat(amount || 0);
+  return numAmount.toLocaleString('en-IN', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+};
 
-  // ✅ CORRECT CALCULATIONS (Same as order confirmation email)
-  const localTotal = formatPrice(roundAmount(order.totalAmount));
-  const localSubtotal = formatPrice(roundAmount(convertToLocal(order.subtotalAmount || 0)));
-  const shippingCost = order.shipping?.shippingCost || order.shippingCost || 0;
-  const localShipping = formatPrice(roundAmount(convertToLocal(shippingCost)));
-  const localTax = formatPrice(roundAmount(convertToLocal(order.taxAmount || 0)));
-  const localDiscount = formatPrice(roundAmount(convertToLocal(order.discountAmount || 0)));
+  // Calculations
+const localTotal = formatPrice(order.totalAmount);
+const localSubtotal = formatPrice(convertToLocal(order.subtotalAmount || 0));
+const shippingCost = order.shipping?.shippingCost || order.shippingCost || 0;
+const localShipping = formatPrice(convertToLocal(shippingCost));
+const localTax = formatPrice(convertToLocal(order.taxAmount || 0));
+const localDiscount = formatPrice(convertToLocal(order.discountAmount || 0));
 
   const orderNumber = order.id;
 
-  // ✅ AMOUNT BREAKDOWN SECTION (Same structure as order confirmation email)
+  // Amount breakdown
   const amountBreakdown = `
     <div style="margin-top: 15px; padding: 15px; background: #f8f9fa; border-radius: 6px; border: 1px solid #ddd;">
       <h4 style="margin: 0 0 12px 0; color: #333; font-size: 16px;">💰 Order Amount Details</h4>
@@ -1236,29 +1265,57 @@ export async function getAdminNewOrderEmail(order) {
     </div>
   `;
 
-  // ✅ ITEMS LIST (Same compact and readable format)
-  const itemsHtml = order.items
-    .map((item) => {
-      const convertedPrice = convertToLocal(item.price || 0);
-      const itemTotal = formatPrice(roundAmount(convertedPrice * (item.quantity || 1)));
-      const productImage = item.product?.images?.[0] || '/images/placeholder-product.jpg';
-      const productName = item.product?.name || 'Product';
-      const qty = item.quantity || 1;
 
-      return `
-        <div class="order-item">
-          <img src="${productImage}" alt="${productName}" class="item-image" />
-          <div class="item-info">
-            <div class="item-name">${productName}</div>
-            <div class="item-meta">Qty: ${qty}</div>
-            <div class="item-price">${currencySymbol}${itemTotal}</div>
-          </div>
+  // ✅ ITEMS LIST with proper handling of optional fields
+const itemsHtml = order.items
+  .map((item) => {
+    const convertedPrice = convertToLocal(item.price || 0);
+    const itemTotal = formatPrice(convertedPrice * (item.quantity || 1));
+    const productImage = item.product?.images?.[0] || '/images/placeholder-product.jpg';
+    const productName = item.product?.name || 'Product';
+    const qty = item.quantity || 1;
+    
+    // ✅ SMART SELECTION DISPLAY - Use OrderResponseDto logic
+    const displayText = OrderResponseDto.getItemDisplayText(item);
+    
+    // ✅ ALTERNATIVE: Direct field access with fallbacks
+    const selectionDetails = [];
+    
+    // Phone case specific fields
+    if (item.phoneModel) selectionDetails.push(`<strong>Model:</strong> ${item.phoneModel}`);
+    if (item.finishType) selectionDetails.push(`<strong>Finish:</strong> ${item.finishType}`);
+    
+    // General product fields
+    if (item.size && item.size !== 'Standard' && item.size !== 'N/A') {
+      selectionDetails.push(`<strong>Size:</strong> ${item.size}`);
+    }
+    if (item.color && item.color !== 'Default' && item.color !== 'N/A') {
+      selectionDetails.push(`<strong>Color:</strong> ${item.color}`);
+    }
+    
+    // Material and other fields
+    if (item.material) selectionDetails.push(`<strong>Material:</strong> ${item.material}`);
+    if (item.style) selectionDetails.push(`<strong>Style:</strong> ${item.style}`);
+    
+    const selectionText = selectionDetails.length > 0 
+      ? `<div class="item-selections" style="margin-top: 5px; font-size: 13px; color: #666;">${selectionDetails.join(' • ')}</div>`
+      : '';
+
+    return `
+      <div class="order-item">
+        <img src="${productImage}" alt="${productName}" class="item-image" />
+        <div class="item-info">
+          <div class="item-name">${productName}</div>
+          ${selectionText}
+          <div class="item-meta">Qty: ${qty}</div>
+          <div class="item-price">${currencySymbol}${itemTotal}</div>
         </div>
-      `;
-    })
-    .join('');
+      </div>
+    `;
+  })
+  .join('');
 
-  // ✅ CUSTOMER INFORMATION
+  // Customer information section
   const customerInfo = `
     <div style="background: #e7f3ff; padding: 15px; border-radius: 8px; margin: 15px 0;">
       <h4 style="margin: 0 0 10px 0; color: #004085;">👤 Customer Information</h4>
@@ -1278,6 +1335,18 @@ export async function getAdminNewOrderEmail(order) {
         <div>
           <strong>Currency:</strong><br>
           ${userCurrency}
+        </div>
+      </div>
+      
+      <!-- Shipping Address -->
+      <div style="margin-top: 15px; padding-top: 15px; border-top: 1px solid #b6d7ff;">
+        <h5 style="margin: 0 0 8px 0; color: #004085;">📍 Shipping Address</h5>
+        <div style="font-size: 14px; line-height: 1.4;">
+          ${order.shippingAddress?.firstName || ''} ${order.shippingAddress?.lastName || ''}<br>
+          ${order.shippingAddress?.address1 || ''}<br>
+          ${order.shippingAddress?.city || ''}, ${order.shippingAddress?.state || ''} ${order.shippingAddress?.zipCode || ''}<br>
+          ${order.shippingAddress?.country || ''}<br>
+          📞 ${order.shippingAddress?.phone || 'N/A'} | 📧 ${order.shippingAddress?.email || 'N/A'}
         </div>
       </div>
     </div>
@@ -1330,40 +1399,6 @@ export async function getAdminNewOrderEmail(order) {
           padding: 20px;
           margin: 20px 0;
         }
-        .order-item {
-          display: flex;
-          align-items: flex-start;
-          gap: 15px;
-          border-bottom: 1px solid #eee;
-          padding: 12px 0;
-        }
-        .item-image {
-          width: 60px;
-          height: 60px;
-          border-radius: 6px;
-          object-fit: cover;
-          flex-shrink: 0;
-          border: 1px solid #f0f0f0;
-        }
-        .item-info {
-          flex: 1;
-        }
-        .item-name {
-          font-weight: 600;
-          color: #333;
-          margin-bottom: 4px;
-          font-size: 14px;
-        }
-        .item-meta {
-          font-size: 12px;
-          color: #777;
-          margin-bottom: 5px;
-        }
-        .item-price {
-          font-weight: bold;
-          color: #ff6b6b;
-          font-size: 14px;
-        }
         .action-button {
           display: inline-block;
           padding: 12px 24px;
@@ -1385,7 +1420,7 @@ export async function getAdminNewOrderEmail(order) {
           border-radius: 8px;
         }
 
-        /* ✅ Mobile Responsive Fixes */
+        /* Mobile Responsive */
         @media only screen and (max-width: 600px) {
           .container { padding: 10px; }
           .header { padding: 25px 15px; font-size: 18px; }
@@ -1435,13 +1470,15 @@ export async function getAdminNewOrderEmail(order) {
 
           <div style="text-align: center; margin: 25px 0;">
             <a href="${process.env.ADMIN_DASHBOARD_URL || 'https://admin.agumiyacollections.com'}/orders" class="action-button">View Order in Dashboard</a>
+            <a href="${process.env.PRINTIFY_DASHBOARD_URL || 'https://printify.com'}" class="action-button" style="background: #4ecdc4;">Open Printify</a>
           </div>
 
           <div style="background: #d1fae5; padding: 15px; border-radius: 8px;">
             <h4 style="margin: 0 0 10px 0; color: #065f46;">✅ Next Steps</h4>
             <ul style="margin: 0; padding-left: 20px; font-size: 14px;">
-              <li>Review order details and shipping address</li>
+              <li>Review order details and customer selections (size/color)</li>
               <li>Process order through Printify dashboard</li>
+              <li>Ensure correct variant is selected based on customer choices</li>
               <li>Update order status once shipped</li>
               <li>Monitor for any customer inquiries</li>
             </ul>
@@ -1478,7 +1515,7 @@ export async function getOrderCancelledEmail(order, reason, cancelledBy, userCur
     // ✅ CORRECT CONVERSION FUNCTION WITH NULL CHECKS
     const convertToLocal = (usdAmount) => {
       if (displayCurrency === 'USD') return usdAmount || 0;
-      const exchangeRate = order.exchangeRate || 83;
+      const exchangeRate = order.exchangeRate || 88.72;
       return (usdAmount || 0) * exchangeRate;
     };
 
@@ -1499,7 +1536,7 @@ const localRefund = formatPrice(roundAmount(convertToLocal(order.refundAmount ||
 
 
     // ✅ AMOUNT BREAKDOWN
-    const amountBreakdown = `
+  const amountBreakdown = `
       <div style="margin-top: 15px; padding: 15px; background: #f8f9fa; border-radius: 6px; border: 1px solid #ddd;">
         <h5 style="margin: 0 0 10px 0; color: #333;">Order Amount Details</h5>
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 14px;">
@@ -1609,7 +1646,7 @@ const localRefund = formatPrice(roundAmount(convertToLocal(order.refundAmount ||
       <div style="margin-top: 10px; padding: 10px; background: #f0f8ff; border-radius: 5px; border-left: 4px solid #dc2626;">
         <small>
           <strong>💱 Currency Note:</strong> 
-          Prices converted from USD to ${displayCurrency} at rate: 1 USD = ${order.exchangeRate || 83} ${displayCurrency}
+          Prices converted from USD to ${displayCurrency} at rate: 1 USD = ${order.exchangeRate || 88.72} ${displayCurrency}
         </small>
       </div>
     ` : '';
@@ -1797,7 +1834,7 @@ export function getAdminCancellationEmail(order, reason, cancelledBy) {
     // ✅ CORRECT CONVERSION FUNCTION WITH NULL CHECKS
     const convertToLocal = (usdAmount) => {
       if (displayCurrency === 'USD') return usdAmount || 0;
-      const exchangeRate = order.exchangeRate || 83;
+      const exchangeRate = order.exchangeRate || 88.72;
       return (usdAmount || 0) * exchangeRate;
     };
 
@@ -1921,7 +1958,7 @@ export function getAdminCancellationEmail(order, reason, cancelledBy) {
     // ✅ CURRENCY NOTE
     const currencyNote = displayCurrency !== 'USD' ? `
       <div style="margin-top: 8px; padding: 8px; background: #f0f8ff; border-radius: 4px; font-size: 12px;">
-        <strong>💱 Currency:</strong> Converted from USD at rate: 1 USD = ${order.exchangeRate || 83} ${displayCurrency}
+        <strong>💱 Currency:</strong> Converted from USD at rate: 1 USD = ${order.exchangeRate || 88.72} ${displayCurrency}
       </div>
     ` : '';
 
@@ -2110,7 +2147,7 @@ export async function getRefundProcessedEmail(order, refundId) {
 
   const convertToLocal = (usdAmount) => {
     if (userCurrency === 'USD') return usdAmount;
-    const exchangeRate = order.exchangeRate || 83;
+    const exchangeRate = order.exchangeRate || 88.72;
     return (usdAmount || 0) * exchangeRate;
   };
 
@@ -2161,27 +2198,42 @@ export async function getRefundProcessedEmail(order, refundId) {
     </div>
   `;
 
-  // ✅ ITEMS LIST (Same compact and readable format as order confirmation)
-  const itemsHtml = order.items
-    .map((item) => {
-      const convertedPrice = convertToLocal(item.price || 0);
-      const itemTotal = formatPrice(roundAmount(convertedPrice * (item.quantity || 1)));
-      const productImage = item.product?.images?.[0] || '/images/placeholder-product.jpg';
-      const productName = item.product?.name || 'Product';
-      const qty = item.quantity || 1;
+// ✅ SIMPLER FIX: Show ALL available selection data
+const itemsHtml = order.items
+  .map((item) => {
+    const convertedPrice = convertToLocal(item.price || 0);
+    const itemTotal = formatPrice(roundAmount(convertedPrice * (item.quantity || 1)));
+    const productImage = item.product?.images?.[0] || '/images/placeholder-product.jpg';
+    const productName = item.product?.name || 'Product';
+    const qty = item.quantity || 1;
+    
+    // ✅ SHOW ALL AVAILABLE DATA - No complex logic
+    const selectionDetails = [];
+    
+    // Add all available selection fields
+    if (item.size) selectionDetails.push(`<strong>Size:</strong> ${item.size}`);
+    if (item.color) selectionDetails.push(`<strong>Color:</strong> ${item.color}`);
+    if (item.phoneModel) selectionDetails.push(`<strong>Model:</strong> ${item.phoneModel}`);
+    if (item.finishType) selectionDetails.push(`<strong>Type:</strong> ${item.finishType}`);
+    if (item.material) selectionDetails.push(`<strong>Material:</strong> ${item.material}`);
+    
+    const selectionText = selectionDetails.length > 0 
+      ? `<div class="item-selections" style="margin-top: 5px; font-size: 13px; color: #666;">${selectionDetails.join(' • ')}</div>`
+      : '';
 
-      return `
-        <div class="order-item">
-          <img src="${productImage}" alt="${productName}" class="item-image" />
-          <div class="item-info">
-            <div class="item-name">${productName}</div>
-            <div class="item-meta">Qty: ${qty}</div>
-            <div class="item-price">${currencySymbol}${itemTotal}</div>
-          </div>
+    return `
+      <div class="order-item">
+        <img src="${productImage}" alt="${productName}" class="item-image" />
+        <div class="item-info">
+          <div class="item-name">${productName}</div>
+          ${selectionText}
+          <div class="item-meta">Qty: ${qty}</div>
+          <div class="item-price">${currencySymbol}${itemTotal}</div>
         </div>
-      `;
-    })
-    .join('');
+      </div>
+    `;
+  })
+  .join('');
 
   return `
     <!DOCTYPE html>

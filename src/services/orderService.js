@@ -7,7 +7,6 @@ import logger from "../utils/logger.js";
 import { ProductVariantService } from "./productVariantService.js";
 import { FulfillmentStatus, PaymentStatus } from "@prisma/client";
 import RazorpayService from "./razorpayService.js"; // ✅ Change this line
-import printifyShippingService from "./printifyShippingService.js";
 import { taxService } from "./taxService.js";
 import { couponService } from "./couponService.js";
 
@@ -29,7 +28,7 @@ export class OrderService {
   };
 
 
-  async createOrderFromPayment(userId, tempOrderData, razorpayPaymentId, razorpayOrderId) {
+async createOrderFromPayment(userId, tempOrderData, razorpayPaymentId, razorpayOrderId) {
   try {
     const { 
       items, 
@@ -38,9 +37,9 @@ export class OrderService {
       orderNotes, 
       couponCode,
       subtotalAmount,
-      shippingCost,      // 🆕 From calculation service
-      taxAmount,         // 🆕 From calculation service  
-      taxRate,           // 🆕 From calculation service
+      shippingCost,
+      taxAmount,  
+      taxRate,
       discountAmount,
       finalAmountUSD,
       finalAmountINR,
@@ -48,9 +47,14 @@ export class OrderService {
       exchangeRate
     } = tempOrderData;
 
-    logger.info(`🔄 Creating order from payment for user: ${userId}`);
+
+    // ✅ REMOVED VALIDATION - Make size/color optional
+    // Let the order be created with whatever data comes from frontend
+    // No validation for size/color/phoneModel/finishType
 
     let order;
+    
+    // 🔥 STEP 1: ONLY CREATE ORDER IN TRANSACTION (FAST OPERATIONS)
     try {
       order = await prisma.$transaction(async (tx) => {
         // Create main order - WITH PAYMENT SUCCESS
@@ -84,8 +88,17 @@ export class OrderService {
                 printifyVariantId: item.printifyVariantId,
                 printifyBlueprintId: item.printifyBlueprintId,
                 printifyPrintProviderId: item.printifyPrintProviderId,
-                size: item.size,
-                color: item.color,
+                
+                // ✅ MAKE ALL SELECTION FIELDS OPTIONAL
+                size: item.size || null, // Changed from 'Standard' to null
+                color: item.color || null, // Changed from 'Default' to null
+                phoneModel: item.phoneModel || null,
+                finishType: item.finishType || null,
+                material: item.material || null,
+                style: item.style || null,
+                customOption1: item.customOption1 || null,
+                customOption2: item.customOption2 || null,
+                variantTitle: item.variantTitle || null,
               })),
             },
           },
@@ -108,12 +121,17 @@ export class OrderService {
         });
 
         return newOrder;
+      }, {
+        maxWait: 10000, // 10 seconds
+        timeout: 15000, // 15 seconds
       });
     } catch (transactionError) {
       console.error('Order creation transaction failed:', transactionError);
       throw new Error(`Order creation failed: ${transactionError.message}`);
     }
-    // Fetch complete order with relations
+
+    // ... rest of your function remains the same
+    // 🔥 STEP 2: FETCH COMPLETE ORDER OUTSIDE TRANSACTION
     const completeOrder = await prisma.order.findUnique({
       where: { id: order.id },
       include: {
@@ -137,56 +155,59 @@ export class OrderService {
       throw new Error(`Failed to fetch created order ${order.id}`);
     }
 
-      // Record coupon usage if applicable
-      if (couponCode) {
-        try {
-          
-          const coupon = await prisma.coupon.findUnique({
-            where: { code: couponCode }
+    // 🔥 STEP 3: COUPON USAGE OUTSIDE TRANSACTION
+    if (couponCode) {
+      try {
+        const coupon = await prisma.coupon.findUnique({
+          where: { code: couponCode }
+        });
+        
+        if (coupon) {
+          // Use separate transaction for coupon operations
+          await prisma.$transaction(async (tx) => {
+            // Create coupon usage record
+            await tx.couponUsage.create({
+              data: {
+                couponId: coupon.id,
+                userId: userId,
+                orderId: order.id,
+                discountAmount: discountAmount
+              }
+            });
+
+            // Update coupon usedCount
+            await tx.coupon.update({
+              where: { id: coupon.id },
+              data: { 
+                usedCount: { increment: 1 }
+              }
+            });
           });
-          
-          if (coupon) {
-            
-            // ✅ Do both operations in a transaction
-            await prisma.$transaction(async (tx) => {
-              // Create coupon usage record
-              await tx.couponUsage.create({
-                data: {
-                  couponId: coupon.id,
-                  userId: userId,
-                  orderId: order.id,
-                  discountAmount: discountAmount
-                }
-              });
-
-              // Update coupon usedCount
-              await tx.coupon.update({
-                where: { id: coupon.id },
-                data: { 
-                  usedCount: { increment: 1 }
-                }
-              });
-            });
-
-            
-            // Verify the update worked
-            const updatedCoupon = await prisma.coupon.findUnique({
-              where: { id: coupon.id }
-            });
-          }
-        } catch (couponError) {
-          console.error('❌ Failed to record coupon usage:', couponError);
         }
+      } catch (couponError) {
+        console.error('❌ Failed to record coupon usage:', couponError);
+        // Don't fail the entire order if coupon recording fails
       }
+    }
 
-    // 🎯 NOW FORWARD TO PRINTIFY (since payment is successful)
-    logger.info(`🔄 Forwarding order ${order.id} to Printify`);
-    await this.forwardOrderToPrintify(order.id);
+    // 🔥 STEP 4: ASYNCHRONOUS OPERATIONS (DON'T AWAIT)
+    try {
+      // 🎯 FORWARD TO PRINTIFY (async - don't await)
+      this.forwardOrderToPrintify(completeOrder.id).catch(error => {
+        console.error('❌ Printify forwarding failed:', error);
+        // You might want to update order status here
+      });
 
-    // Send confirmation emails
-    await this.sendOrderConfirmationOnly(completeOrder);
+      // 📧 SEND CONFIRMATION EMAILS (async - don't await)
+      this.sendOrderConfirmationOnly(completeOrder).catch(error => {
+        console.error('❌ Email sending failed:', error);
+      });
+      
+    } catch (asyncError) {
+      console.error('❌ Async operations failed:', asyncError);
+      // Don't fail the order creation for async operations
+    }
     
-    logger.info(`✅ Order created from payment: ${order.id}`);
 
     return completeOrder;
 
@@ -194,257 +215,7 @@ export class OrderService {
     logger.error(`❌ Order creation from payment failed: ${error.message}`);
     throw error;
   }
-  }
-
-  async createOrder(userId, orderData) {
-    try {
-      const { items, shippingAddress, orderImage, orderNotes, couponCode } = orderData;
-
-      // Validate required fields
-      if (!items || !Array.isArray(items) || items.length === 0) {
-        throw new Error('Order items are required');
-      }
-
-      if (!shippingAddress) {
-        throw new Error('Shipping address is required');
-      }
-
-      // Rounding functions
-      const roundToWholeNumber = (amount) => Math.round(amount);
-      const roundUSDToWhole = (amount) => Math.round(amount * 100) / 100;
-
-      // Validate shipping address fields
-      const requiredAddressFields = ['firstName', 'email', 'phone', 'address1', 'city', 'region', 'country', 'zipCode'];
-      const missingFields = requiredAddressFields.filter(field => !shippingAddress[field]);
-      
-      if (missingFields.length > 0) {
-        throw new Error(`Missing required shipping fields: ${missingFields.join(', ')}`);
-      }
-
-      // Ensure lastName exists
-      if (!shippingAddress.lastName) {
-        shippingAddress.lastName = '';
-      }
-
-      // Validate user exists
-      const user = await prisma.user.findUnique({ where: { id: userId } });
-      if (!user) {
-        throw new Error(`User with ID ${userId} not found`);
-      }
-
-      // Get product IDs from items
-      const productIds = items.map(item => item.productId).filter(Boolean);
-      if (productIds.length === 0) {
-        throw new Error('No valid product IDs found in order items');
-      }
-
-      // Fetch products
-      const products = await prisma.product.findMany({
-        where: { id: { in: productIds } }
-      });
-      
-      const productMap = new Map(products.map(p => [p.id, p]));
-
-      let subtotalAmount = 0;
-      const orderItems = [];
-      
-      // Validate variants
-      const validationPromises = items.map(item => 
-        this.variantService.validateVariant(item.productId, item.variantId)
-      );
-      
-      const variantResults = await Promise.all(validationPromises);
-
-      // Process items and calculate subtotal
-      for (let i = 0; i < items.length; i++) {
-        const item = items[i];
-        const variantInfo = variantResults[i];
-        const product = productMap.get(item.productId);
-
-        if (!product) {
-          throw new Error(`Product ${item.productId} not found`);
-        }
-
-        if (!product.inStock) {
-          throw new Error(`Product ${product.name} is out of stock`);
-        }
-
-        const itemTotal = variantInfo.price * item.quantity;
-        subtotalAmount += itemTotal;
-
-        orderItems.push({
-          productId: item.productId,
-          quantity: item.quantity,
-          price: roundUSDToWhole(variantInfo.price),
-          printifyVariantId: item.variantId?.toString(),
-          printifyBlueprintId: variantInfo.blueprintId,
-          printifyPrintProviderId: variantInfo.printProviderId,
-          size: item.size,
-          color: item.color,
-        });
-      }
-
-      subtotalAmount = roundUSDToWhole(subtotalAmount);
-
-      // 🚫 REMOVED SHIPPING CALCULATION - ALWAYS 0
-      let shippingCost = 0;
-      let shippingDetails = null;
-
-      // 🚫 REMOVED TAX CALCULATION - ALWAYS 0
-      let taxAmount = 0;
-      let taxRate = 0;
-
-      // ==================== COUPON VALIDATION ====================
-      let discountAmount = 0;
-      let finalCouponCode = null;
-      let finalCouponId = null;
-
-      if (couponCode && couponCode.trim() !== '') {
-        try {
-          const couponValidation = await couponService.validateCoupon(
-            couponCode.trim(),
-            userId,
-            items.map((item, index) => ({
-              productId: item.productId,
-              variantId: item.variantId,
-              quantity: item.quantity,
-              price: variantResults[index]?.price || item.price,
-              product: products.find(p => p.id === item.productId)
-            })),
-            subtotalAmount
-          );
-
-          if (couponValidation.isValid) {
-            discountAmount = roundUSDToWhole(couponValidation.coupon.discountAmount);
-            finalCouponCode = couponValidation.coupon.code;
-            finalCouponId = couponValidation.coupon.id;
-          } else {
-            throw new Error(`Coupon validation failed: ${couponValidation.error}`);
-          }
-        } catch (error) {
-          console.error('Coupon processing failed:', error);
-        }
-      }
-
-      // ==================== FINAL AMOUNT CALCULATION ====================
-      const userCountry = shippingAddress?.country || 'US';
-      const displayCurrency = userCountry === 'IN' ? 'INR' : 'USD';
-      const exchangeRate = 87.8;
-
-      // 🎯 FINAL TOTAL = SUBTOTAL - DISCOUNT ONLY (NO SHIPPING, NO TAX)
-      let finalAmountUSD = subtotalAmount - discountAmount;
-      finalAmountUSD = Math.max(0.01, finalAmountUSD);
-
-      // Round final amounts
-      const finalAmountINR = roundToWholeNumber(finalAmountUSD * exchangeRate);
-      finalAmountUSD = roundUSDToWhole(finalAmountUSD);
-
-      // ==================== ORDER CREATION ====================
-      let order;
-      try {
-        order = await prisma.$transaction(async (tx) => {
-          // Create main order
-          const newOrder = await tx.order.create({
-            data: {
-              userId,
-              totalAmount: finalAmountINR,
-              subtotalAmount: subtotalAmount,
-              currency: displayCurrency,
-              baseCurrency: 'USD',
-              exchangeRate: exchangeRate,
-              originalAmount: finalAmountUSD,
-              paymentStatus: "PENDING", // Payment not completed yet
-              fulfillmentStatus: "PLACED", // NOT "PROCESSING" yet
-              shippingAddress: shippingAddress,
-              orderImage: orderImage || null,
-              orderNotes: orderNotes || null,
-              couponCode: finalCouponCode,
-              discountAmount: discountAmount,
-              items: {
-                create: orderItems,
-              },
-            },
-            include: {
-              items: {
-                include: {
-                  product: true
-                }
-              }
-            }
-          });
-
-          // Create shipping record
-          await tx.orderShipping.create({
-            data: {
-              orderId: newOrder.id,
-              shippingCost: shippingCost,
-              status: "PENDING",
-              shippingMethod: shippingDetails?.methodId || null,
-              carrier: shippingDetails?.carrier || null,
-              estimatedDelivery: shippingDetails?.estimatedDelivery ? 
-                new Date(shippingDetails.estimatedDelivery) : null,
-            },
-          });
-
-          return newOrder;
-        });
-      } catch (transactionError) {
-        console.error('Transaction failed:', transactionError);
-        throw new Error(`Order creation transaction failed: ${transactionError.message}`);
-      }
-
-      // Fetch complete order with relations
-      const completeOrder = await prisma.order.findUnique({
-        where: { id: order.id },
-        include: {
-          user: {
-            select: {
-              id: true,
-              email: true,
-              name: true
-            }
-          },
-          items: { 
-            include: { 
-              product: true 
-            } 
-          },
-          shipping: true
-        },
-      });
-
-      if (!completeOrder) {
-        throw new Error(`Failed to fetch created order ${order.id}`);
-      }
-
-      // Record coupon usage
-      if (finalCouponId && finalCouponCode) {
-        try {
-          await couponService.markCouponAsUsed({
-            couponId: finalCouponId,
-            userId: userId,
-            orderId: order.id,
-            discountAmount: discountAmount,
-            couponCode: finalCouponCode
-          });
-        } catch (couponError) {
-          console.error('Failed to record coupon usage:', couponError);
-        }
-      }
-
-      // 🚫 REMOVED: Auto-forward to Printify
-      // 🎯 ONLY send order confirmation email for now
-      this.sendOrderConfirmationOnly(completeOrder).catch(err => {
-        console.error('Order confirmation failed:', err);
-      });
-
-      return completeOrder;
-
-    } catch (error) {
-      console.error('Order creation error:', error);
-      throw error;
-    }
-  }
+}
 
 
     async forwardOrderToPrintify(orderId) {
@@ -472,11 +243,9 @@ export class OrderService {
 
       // Check if already forwarded
       if (order.printifyOrderId) {
-        logger.info(`Order ${orderId} already forwarded to Printify: ${order.printifyOrderId}`);
         return { alreadyForwarded: true, printifyOrderId: order.printifyOrderId };
       }
 
-      logger.info(`🔄 Forwarding order ${orderId} to Printify after payment success`);
 
       const printifyItems = order.items.map((item) => ({
         ...item,
@@ -500,7 +269,6 @@ export class OrderService {
         },
       });
 
-      logger.info(`✅ Order ${order.id} forwarded to Printify after payment: ${printifyOrder.id}`);
       
       // Send admin notification
       await this.sendAdminNewOrderNotification(order, printifyOrder.id);
@@ -553,7 +321,6 @@ export class OrderService {
         customerEmailHtml
       );
 
-      logger.info(`✅ Order confirmation sent to: ${order.user.email}`);
       
     } catch (error) {
       console.error(`❌ Order confirmation email failed for order ${order.id}:`, error);
@@ -586,7 +353,6 @@ export class OrderService {
         adminEmailHtml
       );
 
-      logger.info(`✅ Admin notification sent for order ${order.id}`);
       
     } catch (error) {
       console.error('❌ Admin notification failed:', error);
@@ -607,7 +373,7 @@ export class OrderService {
 
   // 🔥 ADD THIS NEW METHOD TO YOUR OrderService CLASS
   async calculateExpectedTotals(items, shippingAddress, subtotal, shippingCost, taxAmount, discountAmount = 0) {
-    const exchangeRate = 87.8;
+    const exchangeRate = 88.72;
     
     // Recalculate to ensure consistency
     const totalUSD = subtotal + shippingCost + taxAmount - discountAmount;
@@ -699,140 +465,7 @@ export class OrderService {
     }
   }
 
-  // async forwardToPrintify(order) {
-    
-  //   try {
-  //     // Validate order data
-  //     if (!order.items || order.items.length === 0) {
-  //       throw new Error('No items in order');
-  //     }
 
-  //     const printifyItems = order.items.map((item) => ({
-  //       ...item,
-  //       printifyProductId: item.product.printifyProductId,
-  //       sku: item.product.sku,
-  //     }));
-
-
-  //     const printifyOrder = await this.printifyService.createOrder({
-  //       orderId: order.id,
-  //       items: printifyItems,
-  //       shippingAddress: order.shippingAddress,
-  //       orderImage: order.orderImage,
-  //     });
-
-
-  //     // Update order with Printify ID
-  //     await prisma.order.update({
-  //       where: { id: order.id },
-  //       data: {
-  //         printifyOrderId: printifyOrder.id,
-  //         fulfillmentStatus: "PROCESSING",
-  //       },
-  //     });
-
-  //     logger.info(`✅ Order ${order.id} forwarded to Printify: ${printifyOrder.id}`);
-      
-  //     return printifyOrder;
-  //   } catch (err) {
-  //     console.error(`❌ Printify forwarding failed for order ${order.id}:`, err);
-      
-  //     // Update order status to indicate Printify failure
-  //     await prisma.order.update({
-  //       where: { id: order.id },
-  //       data: {
-  //         fulfillmentStatus: "PRINTIFY_FAILED",
-  //       },
-  //     }).catch(updateErr => {
-  //       console.error(`❌ Failed to update order status after Printify failure:`, updateErr);
-  //     });
-      
-  //     throw err; // Re-throw to be caught by Promise.allSettled
-  //   }
-  // }
-
-  // async sendOrderNotifications(order) {
-    
-  //   try {
-  //     if (!order.user?.email) {
-  //       const errorMsg = `❌ Customer email not found for order ${order.id}`;
-  //       console.error(errorMsg);
-  //       throw new Error(errorMsg);
-  //     }
-
-
-  //     // Generate email content with timeout
-  //     let customerEmailHtml, adminEmailHtml;
-      
-  //     try {
-  //       // Customer email
-  //       customerEmailHtml = await Promise.race([
-  //         getOrderConfirmationEmail(order),
-  //         new Promise((_, reject) => 
-  //           setTimeout(() => reject(new Error('Email template timeout')), 10000)
-  //         )
-  //       ]);
-  //     } catch (templateError) {
-  //       console.error('❌ Customer email template error:', templateError);
-  //       customerEmailHtml = this.getFallbackOrderEmail(order);
-  //     }
-
-  //     try {
-  //       // Admin email - ADD THIS PART
-  //       adminEmailHtml = await Promise.race([
-  //         getAdminNewOrderEmail(order), // Use your existing function
-  //         new Promise((_, reject) => 
-  //           setTimeout(() => reject(new Error('Admin email template timeout')), 10000)
-  //         )
-  //       ]);
-  //     } catch (templateError) {
-  //       console.error('❌ Admin email template error:', templateError);
-  //       adminEmailHtml = this.getFallbackAdminEmail(order);
-  //     }
-
-  //     // Send emails with better error handling
-  //     const emailPromises = [];
-      
-  //     // Customer email
-  //     emailPromises.push(
-  //       sendMail(
-  //         order.user.email,
-  //         `Order Confirmation - #${order.id}`,
-  //         customerEmailHtml
-  //       ).then(() => {
-  //         logger(`✅ Customer email sent to: ${order.user.email}`);
-  //       }).catch(error => {
-  //         throw new Error(`Customer email failed: ${error.message}`);
-  //       })
-  //     );
-
-  //     // Admin email
-  //     if (process.env.ADMIN_EMAIL) {
-  //       emailPromises.push(
-  //         sendMail(
-  //           process.env.ADMIN_EMAIL,
-  //           `New Order - #${order.id}`,
-  //           adminEmailHtml
-  //         ).then(() => {
-  //         }).catch(error => {
-  //           console.error('❌ Admin email failed:', error);
-  //           // Don't throw for admin email failures
-  //         })
-  //       );
-  //     }
-
-  //     const results = await Promise.allSettled(emailPromises);
-      
-  //     return results;
-      
-  //   } catch (error) {
-  //     console.error(`❌ Email notification failed for order ${order.id}:`, error);
-  //     throw error;
-  //   }
-  // }
-
-  // Add fallback admin email function
-  
   getFallbackAdminEmail(order) {
     return `
       <h2>New Order #${order.id}</h2>
@@ -843,57 +476,7 @@ export class OrderService {
     `;
   }
 
-  // async debugOrderSync(orderId) {
-  //   try {
-  //     const order = await this.getOrderById(orderId);
-      
-  //     if (!order) {
-  //       return { success: false, error: `Order ${orderId} not found in database` };
-  //     }
 
-  //     const debugInfo = {
-  //       orderId: order.id,
-  //       database: {
-  //         printifyOrderId: order.printifyOrderId,
-  //         fulfillmentStatus: order.fulfillmentStatus,
-  //         paymentStatus: order.paymentStatus,
-  //         trackingNumber: order.trackingNumber,
-  //         createdAt: order.createdAt
-  //       }
-  //     };
-
-  //     const connectionTest = await this.printifyService.testConnection();
-  //     debugInfo.printifyConnection = connectionTest;
-
-  //     if (order.printifyOrderId) {
-  //       try {
-  //         const printifyOrder = await this.printifyService.getOrder(order.printifyOrderId);
-  //         debugInfo.printifyOrder = {
-  //           exists: true,
-  //           status: printifyOrder.status,
-  //           external_id: printifyOrder.external_id,
-  //           shipments: printifyOrder.shipments,
-  //           created_at: printifyOrder.created_at
-  //         };
-  //       } catch (error) {
-  //         debugInfo.printifyOrder = {
-  //           exists: false,
-  //           error: error.message
-  //         };
-  //       }
-  //     } else {
-  //       debugInfo.printifyOrder = { exists: false, error: 'No Printify order ID in database' };
-  //     }
-
-  //     const recentOrders = await this.printifyService.listAllOrders(10);
-  //     debugInfo.recentPrintifyOrders = recentOrders;
-
-  //     return { success: true, data: debugInfo };
-  //   } catch (error) {
-  //     logger.error(`❌ Debug order sync failed for order ${orderId}:`, error);
-  //     return { success: false, error: error.message };
-  //   }
-  // }
 
   async syncOrderStatusFromPrintify(orderId) {
     try {
@@ -927,7 +510,6 @@ export class OrderService {
         throw new Error(`Order ${orderId} not yet forwarded to Printify`);
       }
 
-      logger.info(`🔄 Syncing order ${orderId} from Printify: ${order.printifyOrderId}`);
 
       const printifyOrder = await this.printifyService.getOrder(order.printifyOrderId);
       
@@ -970,7 +552,6 @@ export class OrderService {
           await this.sendShippingNotification(updatedOrder, latestShipment);
         }
 
-        logger.info(`✅ Order ${orderId} status updated from ${order.fulfillmentStatus} to ${newFulfillmentStatus}`);
         return updatedOrder;
       } else {
         logger.info(`ℹ️ Order ${orderId} status unchanged: ${order.fulfillmentStatus}`);
@@ -1019,7 +600,6 @@ export class OrderService {
         }
       });
 
-      logger.info(`🔄 Starting bulk sync for ${pendingOrders.length} orders`);
 
       const results = await Promise.allSettled(
         pendingOrders.map(order => this.safeSyncOrderStatus(order.id))
@@ -1035,7 +615,6 @@ export class OrderService {
         }
       });
 
-      logger.info(`✅ Bulk sync completed: ${successful} successful, ${failed} failed out of ${pendingOrders.length} total`);
       return { successful, failed, total: pendingOrders.length };
     } catch (error) {
       logger.error('❌ Bulk sync failed:', error);
@@ -1079,7 +658,6 @@ export class OrderService {
         getOrderShippedEmail(order, trackingInfo)
       );
 
-      logger.info(`📧 Shipping notification sent for order ${order.id}`);
     } catch (error) {
       logger.error(`❌ Failed to send shipping notification: ${error.message}`);
     }
@@ -1376,7 +954,6 @@ async logEmailFailure(orderId, error) {
           }
         });
 
-        logger.info(`✅ Refund processed for order ${order.id}: ${refund.id}`);
         
         // Send refund confirmation
         await this.sendRefundNotification(updatedOrder, refund.id);
@@ -1550,14 +1127,12 @@ async getUserOrders(userId) {
         userId: true,
         totalAmount: true,
         subtotalAmount: true,
-        // 🔥 EXPLICITLY SELECT THESE FIELDS:
         shippingCost: true,
         taxAmount: true, 
         taxRate: true,
         discountAmount: true,
         currency: true,
         couponCode: true,
-        // ... your existing fields
         paymentStatus: true,
         fulfillmentStatus: true,
         shippingAddress: true,
@@ -1570,16 +1145,24 @@ async getUserOrders(userId) {
         orderNotes: true,
         orderImage: true,
         items: {
-          include: {
+          select: {
+            id: true,
+            quantity: true,
+            price: true,
+            size: true,
+            color: true,
+            printifyVariantId: true,
+            printifyBlueprintId: true,
+            printifyPrintProviderId: true,
             product: {
               select: { 
                 id: true, 
                 name: true, 
                 price: true, 
                 images: true 
-              },
-            },
-          },
+              }
+            }
+          }
         },
         shipping: {
           select: {
@@ -1587,7 +1170,6 @@ async getUserOrders(userId) {
             status: true
           }
         },
-        // Include cancellation and refund fields if needed
         cancelledAt: true,
         cancellationReason: true,
         cancelledBy: true,
@@ -1666,23 +1248,51 @@ async getAllOrders(filters = {}) {
           }
         }
       }
-    ].filter(Boolean); // Remove any empty arrays from spread
+    ].filter(Boolean);
   }
 
-  // Get orders with pagination
+  // Get orders with pagination - FIXED: Using select instead of include for items
   const orders = await prisma.order.findMany({
     where,
-    include: {
+    select: {
+      id: true,
+      totalAmount: true,
+      subtotalAmount: true,
+      shippingCost: true,
+      taxAmount: true,
+      taxRate: true,
+      discountAmount: true,
+      currency: true,
+      couponCode: true,
+      paymentStatus: true,
+      fulfillmentStatus: true,
+      shippingAddress: true,
+      createdAt: true,
+      updatedAt: true,
+      printifyOrderId: true,
+      trackingNumber: true,
+      trackingUrl: true,
+      carrier: true,
+      orderNotes: true,
+      orderImage: true,
       user: {
-        select: { id: true, name: true, email: true },
+        select: { id: true, name: true, email: true }
       },
       items: {
-        include: {
+        select: {
+          id: true,
+          quantity: true,
+          price: true,
+          size: true,
+          color: true,
+          printifyVariantId: true,
+          printifyBlueprintId: true,
+          printifyPrintProviderId: true,
           product: {
-            select: { id: true, name: true, price: true, images: true },
-          },
-        },
-      },
+            select: { id: true, name: true, price: true, images: true }
+          }
+        }
+      }
     },
     orderBy: { [sortBy]: sortOrder },
     skip,
@@ -1704,6 +1314,45 @@ async getAllOrders(filters = {}) {
       limit: parseInt(limit)
     }
   };
+}
+
+async getOrderById(orderId) {
+  try {
+    const order = await prisma.order.findUnique({
+      where: { id: orderId },
+      include: {
+        user: {
+          select: { 
+            id: true, 
+            name: true, 
+            email: true 
+          },
+        },
+        items: {
+          include: {
+            product: {
+              select: { 
+                id: true, 
+                name: true, 
+                price: true, 
+                images: true,
+                printifyProductId: true
+              },
+            },
+          },
+        },
+      },
+    });
+
+    if (!order) {
+      throw new Error("Order not found");
+    }
+
+    return order;
+  } catch (error) {
+    console.error('Error in getOrderById:', error);
+    throw error;
+  }
 }
 
   async updateOrderStatus(orderId, statusData) {
@@ -1756,7 +1405,6 @@ async getAllOrders(filters = {}) {
       data: { printifyOrderId: printifyOrder.id, fulfillmentStatus: "PROCESSING" },
     });
 
-    logger.info(`✅ Retry successful: Order ${orderId} forwarded as ${printifyOrder.id}`);
     return printifyOrder.id;
   }
 
@@ -1804,44 +1452,7 @@ async getAllOrders(filters = {}) {
     }
   }
 
-  async getOrderById(orderId) {
-    try {
-      const order = await prisma.order.findUnique({
-        where: { id: orderId },
-        include: {
-          user: {
-            select: { 
-              id: true, 
-              name: true, 
-              email: true 
-            },
-          },
-          items: {
-            include: {
-              product: {
-                select: { 
-                  id: true, 
-                  name: true, 
-                  price: true, 
-                  images: true,
-                  printifyProductId: true
-                },
-              },
-            },
-          },
-        },
-      });
 
-      if (!order) {
-        throw new Error("Order not found");
-      }
-
-      return order;
-    } catch (error) {
-      console.error('Error in getOrderById:', error);
-      throw error;
-    }
-  }
 
   async getAvailableFilters() {
     try {

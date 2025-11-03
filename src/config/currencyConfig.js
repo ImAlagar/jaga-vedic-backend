@@ -123,7 +123,7 @@ export const CURRENCY_CONFIG = {
   // Expanded fallback rates for worldwide currencies
   fallbackRates: {
     USD: 1, EUR: 0.92, GBP: 0.79, JPY: 148.50, CAD: 1.35, AUD: 1.52,
-    CHF: 0.88, CNY: 7.18, INR: 83.25, SGD: 1.35, HKD: 7.82, KRW: 1320.50,
+    CHF: 0.88, CNY: 7.18, INR: 88.72, SGD: 1.35, HKD: 7.82, KRW: 1320.50,
     TWD: 31.45, THB: 35.80, MYR: 4.68, IDR: 15600, VND: 24350, PHP: 56.30,
     AED: 3.67, SAR: 3.75, QAR: 3.64, TRY: 32.15, ILS: 3.86, ZAR: 18.75,
     EGP: 30.90, NGN: 1600, KES: 157, GHS: 12.45, SEK: 10.45, NOK: 10.25,

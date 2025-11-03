@@ -2,7 +2,8 @@
 import express from 'express';
 import { 
   calculateOrderTotals, 
-  calculateQuickTotals 
+  calculateQuickTotals, 
+  getCurrencyInfo
 } from '../controllers/calculationController.js';
 import { verifyUserToken } from '../middlewares/authToken.js';
 
@@ -13,5 +14,6 @@ router.post('/calculate-totals', verifyUserToken, calculateOrderTotals);
 
 // Quick calculation for cart preview
 router.post('/quick-calculate', calculateQuickTotals);
+router.get('/currency-info', getCurrencyInfo); // New route
 
 export default router;

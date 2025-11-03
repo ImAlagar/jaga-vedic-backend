@@ -274,7 +274,6 @@ export async function bulkDeleteProducts(productIds) {
 }
 
 
-// In productModel.js - Add these functions
 export async function softDeleteProductById(id) {
   try {
     const product = await findProductById(id);
