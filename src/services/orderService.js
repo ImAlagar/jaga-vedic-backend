@@ -1355,25 +1355,28 @@ async getOrderById(orderId) {
   }
 }
 
-  async updateOrderStatus(orderId, statusData) {
-    const { paymentStatus, fulfillmentStatus } = statusData;
+async updateOrderStatus(orderId, statusData) {
+  const { paymentStatus, fulfillmentStatus } = statusData;
 
-    if (!paymentStatus && !fulfillmentStatus) {
-      throw new Error("At least one of paymentStatus or fulfillmentStatus is required");
-    }
+  const updatedOrder = await prisma.order.update({
+    where: { id: orderId },
+    data: {
+      ...(paymentStatus && { paymentStatus }),
+      ...(fulfillmentStatus && { fulfillmentStatus }),
+      updatedAt: new Date(),
+    },
+    include: {
+      user: true,
+      items: { 
+        include: { 
+          product: true 
+        } 
+      },
+    },
+  });
 
-    return await prisma.order.update({
-      where: { id: orderId },
-      data: {
-        ...(paymentStatus && { paymentStatus }),
-        ...(fulfillmentStatus && { fulfillmentStatus }),
-      },
-      include: {
-        user: true,
-        items: { include: { product: true } },
-      },
-    });
-  }
+  return updatedOrder;
+}
 
   async retryPrintifyForwarding(orderId) {
     const order = await prisma.order.findUnique({

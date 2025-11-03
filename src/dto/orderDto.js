@@ -56,8 +56,6 @@ export class CreateOrderDto {
     const productName = item.name?.toLowerCase() || '';
     const variantTitle = item.variantTitle?.toLowerCase() || item.variant?.title?.toLowerCase() || '';
 
-     console.log('🔍 Determining product type:', { category, productName, variantTitle });
-
       if (category.includes('phone') || 
           category.includes('case') ||
           category.includes('accessory') ||

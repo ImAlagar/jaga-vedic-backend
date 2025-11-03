@@ -180,14 +180,23 @@ export async function updateOrderStatus(req, res) {
     
     const order = await orderService.updateOrderStatus(parseInt(orderId), statusData);
     
-    socketEvents.emitOrderUpdate(OrderResponseDto.fromOrder(order));
+    // Use OrderResponseDto to format the response
+    const orderResponse = OrderResponseDto.fromOrder(order);
+    
+    if (!orderResponse) {
+      return errorResponse(res, 'Failed to process order data', HttpStatus.INTERNAL_SERVER_ERROR);
+    }
+
+    // Emit socket event with formatted response
+    socketEvents.emitOrderUpdate(orderResponse);
 
     return successResponse(
       res, 
-      OrderResponseDto.fromOrder(order), 
+      orderResponse, 
       'Order status updated successfully'
     );
   } catch (error) {
+    console.error('Update order status error:', error);
     return errorResponse(res, error.message, HttpStatus.BAD_REQUEST);
   }
 }

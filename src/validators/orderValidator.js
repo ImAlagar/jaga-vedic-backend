@@ -38,17 +38,29 @@ export const orderValidators = {
       .withMessage("Zip code is required"),
   ],
 
-    updateStatus: [
+  updateStatus: [
     param('orderId')
       .isInt({ min: 1 })
       .withMessage('Invalid order ID'),
     body('paymentStatus')
       .optional()
-      .isIn(['PENDING', 'SUCCEEDED', 'FAILED', 'REFUNDED'])
+      // UPDATE: Add all Prisma enum values
+      .isIn(['PENDING', 'SUCCEEDED', 'FAILED', 'REFUND_PENDING', 'REFUNDED', 'PARTIALLY_REFUNDED'])
       .withMessage('Invalid payment status'),
     body('fulfillmentStatus')
       .optional()
-      .isIn(['PLACED', 'PROCESSING', 'SHIPPED', 'DELIVERED', 'CANCELLED'])
-      .withMessage('Invalid fulfillment status')
+      // UPDATE: Add all Prisma enum values
+      .isIn(['PLACED', 'PROCESSING', 'SHIPPED', 'DELIVERED', 'CANCELLED', 'FAILED', 'PRINTIFY_FAILED'])
+      .withMessage('Invalid fulfillment status'),
+    // Ensure at least one field is provided
+    body().custom((value, { req }) => {
+      const { paymentStatus, fulfillmentStatus } = req.body;
+      
+      if (!paymentStatus && !fulfillmentStatus) {
+        throw new Error('At least one of paymentStatus or fulfillmentStatus is required');
+      }
+      
+      return true;
+    })
   ]
 };
