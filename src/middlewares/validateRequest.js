@@ -16,10 +16,6 @@ export function validateRequest(req, res, next) {
             errors: errors.array(),
         });
     }
-    console.log('✅ [VALIDATION] Validation passed for:', {
-        method: req.method,
-        url: req.url,
-        body: req.body
-    });
+
     next();
 }

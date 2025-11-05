@@ -142,7 +142,6 @@ class PrintifyShippingService {
           productName: item.name || `Product ${item.productId}`
         };
       } catch (error) {
-        console.error(`❌ Failed to get shipping for product ${item.productId}:`, error.message);
         return this.getFallbackItemShipping(item, country);
       }
     });
