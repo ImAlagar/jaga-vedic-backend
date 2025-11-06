@@ -297,11 +297,7 @@ export class PaymentService {
 async verifyRazorpayPayment(paymentData, userId) {
   const { razorpay_payment_id, razorpay_order_id, razorpay_signature } = paymentData;
 
-  console.log('🔍 Starting payment verification...', {
-    paymentId: razorpay_payment_id?.substring(0, 10) + '...',
-    orderId: razorpay_order_id?.substring(0, 10) + '...',
-    userId: userId
-  });
+
 
   try {
     // 🔥 STEP 1: SIGNATURE VERIFICATION
@@ -315,7 +311,6 @@ async verifyRazorpayPayment(paymentData, userId) {
       throw new Error("Payment signature verification failed");
     }
 
-    console.log('✅ Signature verification passed');
 
     // 🔥 STEP 2: CHECK FOR DUPLICATE PAYMENT
     const existingOrder = await prisma.order.findFirst({
@@ -331,7 +326,6 @@ async verifyRazorpayPayment(paymentData, userId) {
     });
 
     if (existingOrder) {
-      console.log('✅ Payment already processed successfully:', existingOrder.id);
       return {
         success: true,
         paymentId: razorpay_payment_id,
@@ -342,7 +336,6 @@ async verifyRazorpayPayment(paymentData, userId) {
     }
 
     // 🔥 STEP 3: GET RAZORPAY ORDER DATA
-    console.log('📋 Fetching Razorpay order data...');
     const razorpayOrder = await this.razorpay.orders.fetch(razorpay_order_id);
 
     if (!razorpayOrder.notes || !razorpayOrder.notes.tempOrderData) {
@@ -351,7 +344,6 @@ async verifyRazorpayPayment(paymentData, userId) {
     }
 
     const tempOrderData = JSON.parse(razorpayOrder.notes.tempOrderData);
-    console.log('✅ Razorpay order data fetched');
 
     // 🔥 STEP 4: USER VALIDATION
     const tempUserId = parseInt(tempOrderData.userId);
@@ -362,10 +354,8 @@ async verifyRazorpayPayment(paymentData, userId) {
       throw new Error("Payment user mismatch");
     }
 
-    console.log('✅ User validation passed');
 
     // 🔥 STEP 5: CREATE ORDER
-    console.log('🔄 Creating order from payment data...');
     const createdOrder = await this.orderService.createOrderFromPayment(
       userId, 
       tempOrderData, 
@@ -378,7 +368,6 @@ async verifyRazorpayPayment(paymentData, userId) {
       throw new Error("Database order creation failed - no valid order returned");
     }
 
-    console.log('✅ Order created successfully:', createdOrder.id);
 
     return {
       success: true,

@@ -33,17 +33,9 @@ async createOrderFromPayment(userId, tempOrderData, razorpayPaymentId, razorpayO
   let attempts = 0;
   const maxAttempts = 3;
 
-  console.log('🔄 Starting order creation from payment...', {
-    userId,
-    razorpayPaymentId: razorpayPaymentId?.substring(0, 10) + '...',
-    razorpayOrderId: razorpayOrderId?.substring(0, 10) + '...',
-    itemsCount: tempOrderData.items?.length
-  });
-
   // 🔥 RETRY LOOP FOR DATABASE CONFLICTS
   while (attempts < maxAttempts && !order) {
     try {
-      console.log(`🔄 Order creation attempt ${attempts + 1}/${maxAttempts}`);
 
       // 🔥 STEP 1: CHECK FOR DUPLICATE PAYMENT
       const existingOrder = await prisma.order.findFirst({
@@ -61,7 +53,6 @@ async createOrderFromPayment(userId, tempOrderData, razorpayPaymentId, razorpayO
       });
 
       if (existingOrder) {
-        console.log('✅ Payment already processed, returning existing order:', existingOrder.id);
         return existingOrder;
       }
 
@@ -85,7 +76,6 @@ async createOrderFromPayment(userId, tempOrderData, razorpayPaymentId, razorpayO
           exchangeRate = 1
         } = tempOrderData;
 
-        console.log('📦 Creating order with items:', items.length);
 
         // 🔥 CREATE MAIN ORDER
         const newOrder = await tx.order.create({
@@ -149,7 +139,6 @@ async createOrderFromPayment(userId, tempOrderData, razorpayPaymentId, razorpayO
           }
         });
 
-        console.log('✅ Order created:', newOrder.id);
 
         // 🔥 CREATE SHIPPING RECORD
         await tx.orderShipping.create({
@@ -160,7 +149,6 @@ async createOrderFromPayment(userId, tempOrderData, razorpayPaymentId, razorpayO
           },
         });
 
-        console.log('✅ Shipping record created for order:', newOrder.id);
 
         return newOrder;
       }, {
@@ -168,11 +156,9 @@ async createOrderFromPayment(userId, tempOrderData, razorpayPaymentId, razorpayO
         timeout: 15000,
       });
 
-      console.log('🎯 Order creation transaction completed:', order.id);
 
     } catch (transactionError) {
       attempts++;
-      console.error(`❌ Order creation attempt ${attempts} failed:`, transactionError.message);
 
       // 🔥 SPECIFIC ERROR HANDLING
       if (transactionError.message.includes('Unique constraint')) {
@@ -192,13 +178,11 @@ async createOrderFromPayment(userId, tempOrderData, razorpayPaymentId, razorpayO
           });
 
           if (existingOrder) {
-            console.log('✅ Found existing order for duplicate payment:', existingOrder.id);
             order = existingOrder;
             break;
           }
         } else if (transactionError.message.includes('id')) {
           // Auto-increment ID conflict - wait and retry
-          console.log('🔄 Auto-increment ID conflict, retrying...');
           if (attempts < maxAttempts) {
             await new Promise(resolve => setTimeout(resolve, 500));
             continue; // Retry
@@ -208,7 +192,6 @@ async createOrderFromPayment(userId, tempOrderData, razorpayPaymentId, razorpayO
 
       // 🔥 OTHER ERRORS - THROW AFTER MAX ATTEMPTS
       if (attempts >= maxAttempts) {
-        console.error('❌ Order creation failed after all attempts:', transactionError);
         throw new Error(`Order creation failed: ${transactionError.message}`);
       }
     }
@@ -219,7 +202,6 @@ async createOrderFromPayment(userId, tempOrderData, razorpayPaymentId, razorpayO
     throw new Error("Order creation failed - no order returned after retries");
   }
 
-  console.log('✅ Final order validated:', order.id);
 
   // 🔥 STEP 3: FETCH COMPLETE ORDER
   const completeOrder = await prisma.order.findUnique({
@@ -245,7 +227,6 @@ async createOrderFromPayment(userId, tempOrderData, razorpayPaymentId, razorpayO
     throw new Error(`Failed to fetch created order ${order.id}`);
   }
 
-  console.log('✅ Complete order fetched:', completeOrder.id);
 
   // 🔥 STEP 4: COUPON USAGE (NON-BLOCKING)
   if (tempOrderData.couponCode && tempOrderData.discountAmount > 0) {
@@ -272,7 +253,6 @@ async createOrderFromPayment(userId, tempOrderData, razorpayPaymentId, razorpayO
             }
           });
         });
-        console.log('✅ Coupon usage recorded for order:', order.id);
       }
     } catch (couponError) {
       console.error('❌ Failed to record coupon usage:', couponError);
@@ -296,7 +276,6 @@ async createOrderFromPayment(userId, tempOrderData, razorpayPaymentId, razorpayO
     console.error('❌ Async operations failed:', asyncError);
   }
 
-  console.log('🎉 Order creation completed successfully:', completeOrder.id);
   return completeOrder;
 }
 
