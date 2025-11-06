@@ -293,79 +293,104 @@ export class PaymentService {
     }
   }
 
-  // Keep your existing methods (verifyRazorpayPayment, handleWebhookEvent, etc.) the same
-  async verifyRazorpayPayment(paymentData, userId) {
-    const { razorpay_payment_id, razorpay_order_id, razorpay_signature } = paymentData;
+// 🔥 FIXED: Properly wait for order creation and return database order ID
+async verifyRazorpayPayment(paymentData, userId) {
+  const { razorpay_payment_id, razorpay_order_id, razorpay_signature } = paymentData;
 
-    try {
-      // 🎯 STEP 1: Quick signature verification (FAST)
-      const expectedSignature = crypto
-        .createHmac("sha256", process.env.RAZORPAY_KEY_SECRET)
-        .update(razorpay_order_id + "|" + razorpay_payment_id)
-        .digest("hex");
+  try {
+    const expectedSignature = crypto
+      .createHmac("sha256", process.env.RAZORPAY_KEY_SECRET)
+      .update(razorpay_order_id + "|" + razorpay_payment_id)
+      .digest("hex");
 
-      if (expectedSignature !== razorpay_signature) {
-        throw new Error("Payment signature verification failed");
-      }
-
-      // 🎯 STEP 2: Get Razorpay order with timeout
-      const razorpayOrder = await Promise.race([
-        this.razorpay.orders.fetch(razorpay_order_id),
-        new Promise((_, reject) => 
-          setTimeout(() => reject(new Error("Razorpay API timeout")), 10000)
-        )
-      ]);
-
-      if (!razorpayOrder.notes || !razorpayOrder.notes.tempOrderData) {
-        throw new Error("Invalid order data in payment");
-      }
-
-      const tempOrderData = JSON.parse(razorpayOrder.notes.tempOrderData);
-
-      // 🎯 STEP 3: Quick user validation
-      const tempUserId = parseInt(tempOrderData.userId);
-      const currentUserId = parseInt(userId);
-
-      if (tempUserId !== currentUserId) {
-        logger.error(`❌ User mismatch - Temp: ${tempUserId}, Current: ${currentUserId}`);
-        throw new Error("Payment user mismatch");
-      }
-
-      // 🎯 STEP 4: Create order but don't wait for Printify (make it async)
-      this.orderService.createOrderFromPayment(
-        userId, 
-        tempOrderData, 
-        razorpay_payment_id, 
-        razorpay_order_id
-      ).catch(error => {
-        console.error('❌ PAYMENT VERIFICATION - Background order creation failed:', error);
-        logger.error(`❌ Background order creation failed: ${error.message}`);
-      });
-
-      return {
-        success: true,
-        paymentId: razorpay_payment_id,
-        orderId: razorpay_order_id,
-        message: "Payment verified successfully! Your order is being processed."
-      };
-
-    } catch (error) {
-      console.error('❌ PAYMENT VERIFICATION - Detailed failure:', {
-        error: error.message,
-        stack: error.stack,
-        paymentId: razorpay_payment_id,
-        orderId: razorpay_order_id,
-        userId: userId
-      });
-      
-      if (error.message.includes('timeout') || error.code === 'ECONNABORTED') {
-        throw new Error("Payment verification is taking longer than expected. Your order is being processed in the background. Please check your orders page in a few minutes.");
-      }
-      
-      throw error;
+    if (expectedSignature !== razorpay_signature) {
+      throw new Error("Payment signature verification failed");
     }
-  }
 
+    // 🎯 STEP 2: Get Razorpay order with timeout
+    const razorpayOrder = await Promise.race([
+      this.razorpay.orders.fetch(razorpay_order_id),
+      new Promise((_, reject) => 
+        setTimeout(() => reject(new Error("Razorpay API timeout")), 10000)
+      )
+    ]);
+
+    if (!razorpayOrder.notes || !razorpayOrder.notes.tempOrderData) {
+      throw new Error("Invalid order data in payment");
+    }
+
+    const tempOrderData = JSON.parse(razorpayOrder.notes.tempOrderData);
+
+    // 🎯 STEP 3: Quick user validation
+    const tempUserId = parseInt(tempOrderData.userId);
+    const currentUserId = parseInt(userId);
+
+    if (tempUserId !== currentUserId) {
+      logger.error(`❌ User mismatch - Temp: ${tempUserId}, Current: ${currentUserId}`);
+      throw new Error("Payment user mismatch");
+    }
+
+    // 🎯 STEP 4: 🔥 CRITICAL FIX - WAIT FOR ORDER CREATION AND GET DATABASE ORDER ID
+    
+    // Call the method and properly await the result
+    const createdOrder = await this.orderService.createOrderFromPayment(
+      userId, 
+      tempOrderData, 
+      razorpay_payment_id, 
+      razorpay_order_id
+    );
+
+    // 🔥 VALIDATE THE RETURNED ORDER OBJECT
+    if (!createdOrder) {
+      throw new Error("Order creation returned null/undefined");
+    }
+
+    if (!createdOrder.id) {
+      console.error('❌ Created order missing ID:', createdOrder);
+      throw new Error("Database order creation failed - no order ID returned");
+    }
+
+    // 🔥 CONFIRM ORDER EXISTS IN DATABASE
+    try {
+      const verifiedOrder = await prisma.order.findUnique({
+        where: { id: createdOrder.id },
+        select: { id: true, paymentStatus: true }
+      });
+
+      if (!verifiedOrder) {
+        throw new Error("Order not found in database after creation");
+      }
+
+    } catch (dbError) {
+      console.error('❌ Database verification failed:', dbError);
+      throw new Error("Order creation database verification failed");
+    }
+
+    // 🎯 STEP 5: RETURN SUCCESS WITH DATABASE ORDER ID
+    return {
+      success: true,
+      paymentId: razorpay_payment_id,
+      orderId: createdOrder.id, // 🔥 THIS IS THE DATABASE ORDER ID
+      razorpayOrderId: razorpay_order_id, // Include for reference
+      message: "Payment verified successfully! Your order has been created."
+    };
+
+  } catch (error) {
+    console.error('❌ PAYMENT VERIFICATION - Detailed failure:', {
+      error: error.message,
+      stack: error.stack,
+      paymentId: razorpay_payment_id,
+      orderId: razorpay_order_id,
+      userId: userId
+    });
+    
+    if (error.message.includes('timeout') || error.code === 'ECONNABORTED') {
+      throw new Error("Payment verification is taking longer than expected. Your order is being processed in the background. Please check your orders page in a few minutes.");
+    }
+    
+    throw error;
+  }
+}
   // Handle webhook events
   async handleWebhookEvent(webhookData) {
     try {

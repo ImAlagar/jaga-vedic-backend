@@ -7,8 +7,7 @@ import logger from "../utils/logger.js";
 import { ProductVariantService } from "./productVariantService.js";
 import { FulfillmentStatus, PaymentStatus } from "@prisma/client";
 import RazorpayService from "./razorpayService.js"; // ✅ Change this line
-import { taxService } from "./taxService.js";
-import { couponService } from "./couponService.js";
+
 
 export class OrderService {
   constructor() {

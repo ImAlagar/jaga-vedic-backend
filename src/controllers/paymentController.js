@@ -33,6 +33,8 @@ export const verifyPayment = async (req, res) => {
     const { razorpay_payment_id, razorpay_order_id, razorpay_signature } = req.body;
     const userId = req.user.id;
 
+
+
     // Validate required fields
     if (!razorpay_payment_id || !razorpay_order_id || !razorpay_signature) {
       return errorResponse(res, "Missing payment verification data", HttpStatus.BAD_REQUEST);
@@ -44,6 +46,8 @@ export const verifyPayment = async (req, res) => {
       razorpay_signature
     }, userId);
 
+
+
     return successResponse(
       res, 
       verification, 
@@ -51,7 +55,7 @@ export const verifyPayment = async (req, res) => {
     );
 
   } catch (error) {
-    console.error('❌ Payment verification failed:', error);
+    console.error('❌ Payment verification failed in controller:', error);
     return errorResponse(res, error.message, HttpStatus.BAD_REQUEST);
   }
 };
