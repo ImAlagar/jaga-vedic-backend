@@ -293,11 +293,13 @@ export class PaymentService {
     }
   }
 
-// 🔥 FIXED: Properly wait for order creation and return database order ID
 async verifyRazorpayPayment(paymentData, userId) {
   const { razorpay_payment_id, razorpay_order_id, razorpay_signature } = paymentData;
 
   try {
+
+
+    // 🔥 STEP 1: SIGNATURE VERIFICATION
     const expectedSignature = crypto
       .createHmac("sha256", process.env.RAZORPAY_KEY_SECRET)
       .update(razorpay_order_id + "|" + razorpay_payment_id)
@@ -307,13 +309,31 @@ async verifyRazorpayPayment(paymentData, userId) {
       throw new Error("Payment signature verification failed");
     }
 
-    // 🎯 STEP 2: Get Razorpay order with timeout
-    const razorpayOrder = await Promise.race([
-      this.razorpay.orders.fetch(razorpay_order_id),
-      new Promise((_, reject) => 
-        setTimeout(() => reject(new Error("Razorpay API timeout")), 10000)
-      )
-    ]);
+    // 🔥 STEP 2: CHECK FOR DUPLICATE PAYMENT
+    const existingOrder = await prisma.order.findFirst({
+      where: {
+        razorpayPaymentId: razorpay_payment_id,
+        paymentStatus: "SUCCEEDED"
+      },
+      select: {
+        id: true,
+        paymentStatus: true,
+        fulfillmentStatus: true
+      }
+    });
+
+    if (existingOrder) {
+      return {
+        success: true,
+        paymentId: razorpay_payment_id,
+        orderId: existingOrder.id,
+        razorpayOrderId: razorpay_order_id,
+        message: "Payment already verified successfully"
+      };
+    }
+
+    // 🔥 STEP 3: GET RAZORPAY ORDER DATA
+    const razorpayOrder = await this.razorpay.orders.fetch(razorpay_order_id);
 
     if (!razorpayOrder.notes || !razorpayOrder.notes.tempOrderData) {
       throw new Error("Invalid order data in payment");
@@ -321,18 +341,16 @@ async verifyRazorpayPayment(paymentData, userId) {
 
     const tempOrderData = JSON.parse(razorpayOrder.notes.tempOrderData);
 
-    // 🎯 STEP 3: Quick user validation
+    // 🔥 STEP 4: USER VALIDATION
     const tempUserId = parseInt(tempOrderData.userId);
     const currentUserId = parseInt(userId);
 
     if (tempUserId !== currentUserId) {
-      logger.error(`❌ User mismatch - Temp: ${tempUserId}, Current: ${currentUserId}`);
+      console.error('❌ User mismatch:', { tempUserId, currentUserId });
       throw new Error("Payment user mismatch");
     }
 
-    // 🎯 STEP 4: 🔥 CRITICAL FIX - WAIT FOR ORDER CREATION AND GET DATABASE ORDER ID
-    
-    // Call the method and properly await the result
+    // 🔥 STEP 5: CREATE ORDER WITH RETRY LOGIC
     const createdOrder = await this.orderService.createOrderFromPayment(
       userId, 
       tempOrderData, 
@@ -340,55 +358,64 @@ async verifyRazorpayPayment(paymentData, userId) {
       razorpay_order_id
     );
 
-    // 🔥 VALIDATE THE RETURNED ORDER OBJECT
-    if (!createdOrder) {
-      throw new Error("Order creation returned null/undefined");
-    }
-
-    if (!createdOrder.id) {
-      console.error('❌ Created order missing ID:', createdOrder);
+    if (!createdOrder || !createdOrder.id) {
       throw new Error("Database order creation failed - no order ID returned");
     }
 
-    // 🔥 CONFIRM ORDER EXISTS IN DATABASE
-    try {
-      const verifiedOrder = await prisma.order.findUnique({
-        where: { id: createdOrder.id },
-        select: { id: true, paymentStatus: true }
-      });
 
-      if (!verifiedOrder) {
-        throw new Error("Order not found in database after creation");
-      }
-
-    } catch (dbError) {
-      console.error('❌ Database verification failed:', dbError);
-      throw new Error("Order creation database verification failed");
-    }
-
-    // 🎯 STEP 5: RETURN SUCCESS WITH DATABASE ORDER ID
     return {
       success: true,
       paymentId: razorpay_payment_id,
-      orderId: createdOrder.id, // 🔥 THIS IS THE DATABASE ORDER ID
-      razorpayOrderId: razorpay_order_id, // Include for reference
+      orderId: createdOrder.id, // 🔥 DATABASE ORDER ID
+      razorpayOrderId: razorpay_order_id,
       message: "Payment verified successfully! Your order has been created."
     };
 
   } catch (error) {
-    console.error('❌ PAYMENT VERIFICATION - Detailed failure:', {
+    console.error('❌ Payment verification failed:', {
       error: error.message,
-      stack: error.stack,
+      code: error.code,
       paymentId: razorpay_payment_id,
       orderId: razorpay_order_id,
       userId: userId
     });
-    
-    if (error.message.includes('timeout') || error.code === 'ECONNABORTED') {
-      throw new Error("Payment verification is taking longer than expected. Your order is being processed in the background. Please check your orders page in a few minutes.");
+
+    // 🔥 SPECIFIC ERROR HANDLING
+    let userFriendlyMessage = 'Payment verification failed';
+
+    if (error.message.includes('Unique constraint')) {
+      if (error.message.includes('razorpay_payment_id')) {
+        // Duplicate payment - try to find the existing order
+        const existingOrder = await prisma.order.findFirst({
+          where: {
+            razorpayPaymentId: razorpay_payment_id
+          },
+          select: { id: true, paymentStatus: true }
+        });
+
+        if (existingOrder) {
+          if (existingOrder.paymentStatus === 'SUCCEEDED') {
+            return {
+              success: true,
+              paymentId: razorpay_payment_id,
+              orderId: existingOrder.id,
+              razorpayOrderId: razorpay_order_id,
+              message: "Payment was already processed successfully"
+            };
+          } else {
+            userFriendlyMessage = 'Payment is being processed. Please check your orders.';
+          }
+        }
+      } else if (error.message.includes('id')) {
+        userFriendlyMessage = 'Order processing issue. Please try again in a moment.';
+      }
+    } else if (error.message.includes('signature')) {
+      userFriendlyMessage = 'Payment security verification failed. Please contact support.';
+    } else if (error.message.includes('timeout')) {
+      userFriendlyMessage = 'Payment verification is taking longer than expected. Your order is being processed. Please check your orders page.';
     }
-    
-    throw error;
+
+    throw new Error(userFriendlyMessage);
   }
 }
   // Handle webhook events

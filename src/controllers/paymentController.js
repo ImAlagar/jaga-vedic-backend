@@ -33,8 +33,6 @@ export const verifyPayment = async (req, res) => {
     const { razorpay_payment_id, razorpay_order_id, razorpay_signature } = req.body;
     const userId = req.user.id;
 
-
-
     // Validate required fields
     if (!razorpay_payment_id || !razorpay_order_id || !razorpay_signature) {
       return errorResponse(res, "Missing payment verification data", HttpStatus.BAD_REQUEST);
@@ -47,7 +45,6 @@ export const verifyPayment = async (req, res) => {
     }, userId);
 
 
-
     return successResponse(
       res, 
       verification, 
@@ -55,8 +52,25 @@ export const verifyPayment = async (req, res) => {
     );
 
   } catch (error) {
-    console.error('❌ Payment verification failed in controller:', error);
-    return errorResponse(res, error.message, HttpStatus.BAD_REQUEST);
+    console.error('❌ Payment verification failed in controller:', {
+      error: error.message,
+      userId: req.user?.id
+    });
+
+    // 🔥 USER-FRIENDLY ERROR MESSAGES
+    let statusCode = HttpStatus.BAD_REQUEST;
+    let errorMessage = error.message;
+
+    if (error.message.includes('already processed') || 
+        error.message.includes('already verified')) {
+      statusCode = HttpStatus.CONFLICT;
+    } else if (error.message.includes('signature')) {
+      statusCode = HttpStatus.UNAUTHORIZED;
+    } else if (error.message.includes('timeout')) {
+      statusCode = HttpStatus.REQUEST_TIMEOUT;
+    }
+
+    return errorResponse(res, errorMessage, statusCode);
   }
 };
 
