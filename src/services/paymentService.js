@@ -293,12 +293,17 @@ export class PaymentService {
     }
   }
 
+// services/paymentService.js - PRODUCTION FIX
 async verifyRazorpayPayment(paymentData, userId) {
   const { razorpay_payment_id, razorpay_order_id, razorpay_signature } = paymentData;
 
+  console.log('🔍 Starting payment verification...', {
+    paymentId: razorpay_payment_id?.substring(0, 10) + '...',
+    orderId: razorpay_order_id?.substring(0, 10) + '...',
+    userId: userId
+  });
+
   try {
-
-
     // 🔥 STEP 1: SIGNATURE VERIFICATION
     const expectedSignature = crypto
       .createHmac("sha256", process.env.RAZORPAY_KEY_SECRET)
@@ -306,8 +311,11 @@ async verifyRazorpayPayment(paymentData, userId) {
       .digest("hex");
 
     if (expectedSignature !== razorpay_signature) {
+      console.error('❌ Signature verification failed');
       throw new Error("Payment signature verification failed");
     }
+
+    console.log('✅ Signature verification passed');
 
     // 🔥 STEP 2: CHECK FOR DUPLICATE PAYMENT
     const existingOrder = await prisma.order.findFirst({
@@ -323,6 +331,7 @@ async verifyRazorpayPayment(paymentData, userId) {
     });
 
     if (existingOrder) {
+      console.log('✅ Payment already processed successfully:', existingOrder.id);
       return {
         success: true,
         paymentId: razorpay_payment_id,
@@ -333,13 +342,16 @@ async verifyRazorpayPayment(paymentData, userId) {
     }
 
     // 🔥 STEP 3: GET RAZORPAY ORDER DATA
+    console.log('📋 Fetching Razorpay order data...');
     const razorpayOrder = await this.razorpay.orders.fetch(razorpay_order_id);
 
     if (!razorpayOrder.notes || !razorpayOrder.notes.tempOrderData) {
+      console.error('❌ No temp order data in Razorpay order');
       throw new Error("Invalid order data in payment");
     }
 
     const tempOrderData = JSON.parse(razorpayOrder.notes.tempOrderData);
+    console.log('✅ Razorpay order data fetched');
 
     // 🔥 STEP 4: USER VALIDATION
     const tempUserId = parseInt(tempOrderData.userId);
@@ -350,7 +362,10 @@ async verifyRazorpayPayment(paymentData, userId) {
       throw new Error("Payment user mismatch");
     }
 
-    // 🔥 STEP 5: CREATE ORDER WITH RETRY LOGIC
+    console.log('✅ User validation passed');
+
+    // 🔥 STEP 5: CREATE ORDER
+    console.log('🔄 Creating order from payment data...');
     const createdOrder = await this.orderService.createOrderFromPayment(
       userId, 
       tempOrderData, 
@@ -359,14 +374,16 @@ async verifyRazorpayPayment(paymentData, userId) {
     );
 
     if (!createdOrder || !createdOrder.id) {
-      throw new Error("Database order creation failed - no order ID returned");
+      console.error('❌ Order creation returned invalid data:', createdOrder);
+      throw new Error("Database order creation failed - no valid order returned");
     }
 
+    console.log('✅ Order created successfully:', createdOrder.id);
 
     return {
       success: true,
       paymentId: razorpay_payment_id,
-      orderId: createdOrder.id, // 🔥 DATABASE ORDER ID
+      orderId: createdOrder.id,
       razorpayOrderId: razorpay_order_id,
       message: "Payment verified successfully! Your order has been created."
     };
@@ -374,18 +391,18 @@ async verifyRazorpayPayment(paymentData, userId) {
   } catch (error) {
     console.error('❌ Payment verification failed:', {
       error: error.message,
-      code: error.code,
+      stack: error.stack,
       paymentId: razorpay_payment_id,
       orderId: razorpay_order_id,
       userId: userId
     });
 
-    // 🔥 SPECIFIC ERROR HANDLING
+    // 🔥 USER-FRIENDLY ERROR MESSAGES
     let userFriendlyMessage = 'Payment verification failed';
 
     if (error.message.includes('Unique constraint')) {
       if (error.message.includes('razorpay_payment_id')) {
-        // Duplicate payment - try to find the existing order
+        // Try to find the order that was created
         const existingOrder = await prisma.order.findFirst({
           where: {
             razorpayPaymentId: razorpay_payment_id
@@ -394,30 +411,31 @@ async verifyRazorpayPayment(paymentData, userId) {
         });
 
         if (existingOrder) {
-          if (existingOrder.paymentStatus === 'SUCCEEDED') {
-            return {
-              success: true,
-              paymentId: razorpay_payment_id,
-              orderId: existingOrder.id,
-              razorpayOrderId: razorpay_order_id,
-              message: "Payment was already processed successfully"
-            };
-          } else {
-            userFriendlyMessage = 'Payment is being processed. Please check your orders.';
-          }
+          return {
+            success: true,
+            paymentId: razorpay_payment_id,
+            orderId: existingOrder.id,
+            razorpayOrderId: razorpay_order_id,
+            message: "Payment was already processed successfully"
+          };
+        } else {
+          userFriendlyMessage = 'Payment processing issue. Please check your orders page.';
         }
-      } else if (error.message.includes('id')) {
+      } else {
         userFriendlyMessage = 'Order processing issue. Please try again in a moment.';
       }
     } else if (error.message.includes('signature')) {
-      userFriendlyMessage = 'Payment security verification failed. Please contact support.';
+      userFriendlyMessage = 'Payment security verification failed.';
     } else if (error.message.includes('timeout')) {
-      userFriendlyMessage = 'Payment verification is taking longer than expected. Your order is being processed. Please check your orders page.';
+      userFriendlyMessage = 'Payment verification timeout. Please check your orders page.';
+    } else if (error.message.includes('user mismatch')) {
+      userFriendlyMessage = 'Payment authentication failed.';
     }
 
     throw new Error(userFriendlyMessage);
   }
 }
+
   // Handle webhook events
   async handleWebhookEvent(webhookData) {
     try {

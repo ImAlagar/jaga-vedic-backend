@@ -27,79 +27,106 @@ export class OrderService {
   };
 
 
-// services/orderService.js - COMPLETE FIX WITHOUT SCHEMA CHANGE
+// services/orderService.js - PRODUCTION FIX
 async createOrderFromPayment(userId, tempOrderData, razorpayPaymentId, razorpayOrderId) {
-  try {
-    const { 
-      items, 
-      shippingAddress, 
-      orderImage, 
-      orderNotes, 
-      couponCode,
-      subtotalAmount,
-      shippingCost,
-      taxAmount,  
-      taxRate,
-      discountAmount,
-      finalAmountUSD,
-      finalAmountINR,
-      displayCurrency,
-      exchangeRate
-    } = tempOrderData;
+  let order = null;
+  let attempts = 0;
+  const maxAttempts = 3;
 
-    let order;
-    let attempts = 0;
-    const maxAttempts = 5;
+  console.log('🔄 Starting order creation from payment...', {
+    userId,
+    razorpayPaymentId: razorpayPaymentId?.substring(0, 10) + '...',
+    razorpayOrderId: razorpayOrderId?.substring(0, 10) + '...',
+    itemsCount: tempOrderData.items?.length
+  });
 
-    // 🔥 RETRY LOGIC FOR AUTO-INCREMENT ID CONFLICTS
-    while (attempts < maxAttempts) {
-      try {
+  // 🔥 RETRY LOOP FOR DATABASE CONFLICTS
+  while (attempts < maxAttempts && !order) {
+    try {
+      console.log(`🔄 Order creation attempt ${attempts + 1}/${maxAttempts}`);
 
-        order = await prisma.$transaction(async (tx) => {
-          // 🔥 STEP 1: CHECK FOR DUPLICATE PAYMENT FIRST
-          const existingOrder = await tx.order.findFirst({
-            where: {
-              razorpayPaymentId: razorpayPaymentId,
-              paymentStatus: "SUCCEEDED"
+      // 🔥 STEP 1: CHECK FOR DUPLICATE PAYMENT
+      const existingOrder = await prisma.order.findFirst({
+        where: {
+          razorpayPaymentId: razorpayPaymentId,
+          paymentStatus: "SUCCEEDED"
+        },
+        include: {
+          items: {
+            include: {
+              product: true
             }
-          });
-
-          if (existingOrder) {
-            return existingOrder;
           }
+        }
+      });
 
-          // 🔥 STEP 2: CREATE ORDER (LET DATABASE GENERATE AUTO-INCREMENT ID)
-          const newOrder = await tx.order.create({
-            data: {
-              // 🔥 NO MANUAL ID - Let database handle auto-increment
-              userId,
-              totalAmount: finalAmountINR,
-              subtotalAmount: subtotalAmount,
-              shippingCost: shippingCost,
-              taxAmount: taxAmount,
-              taxRate: taxRate,
-              currency: displayCurrency,
-              baseCurrency: 'USD',
-              exchangeRate: exchangeRate,
-              originalAmount: finalAmountUSD,
-              paymentStatus: "SUCCEEDED",
-              fulfillmentStatus: "PLACED", 
-              shippingAddress: shippingAddress,
-              orderImage: orderImage || null,
-              orderNotes: orderNotes || null,
-              couponCode: couponCode,
-              discountAmount: discountAmount,
-              razorpayPaymentId: razorpayPaymentId,
-              razorpayOrderId: razorpayOrderId,
-              paidAt: new Date(),
-              items: {
-                create: items.map((item) => ({
+      if (existingOrder) {
+        console.log('✅ Payment already processed, returning existing order:', existingOrder.id);
+        return existingOrder;
+      }
+
+      // 🔥 STEP 2: CREATE ORDER IN TRANSACTION
+      order = await prisma.$transaction(async (tx) => {
+        // Extract data with defaults
+        const { 
+          items = [], 
+          shippingAddress = {}, 
+          orderImage = null, 
+          orderNotes = null, 
+          couponCode = null,
+          subtotalAmount = 0,
+          shippingCost = 0,
+          taxAmount = 0,  
+          taxRate = 0,
+          discountAmount = 0,
+          finalAmountUSD = 0,
+          finalAmountINR = 0,
+          displayCurrency = 'USD',
+          exchangeRate = 1
+        } = tempOrderData;
+
+        console.log('📦 Creating order with items:', items.length);
+
+        // 🔥 CREATE MAIN ORDER
+        const newOrder = await tx.order.create({
+          data: {
+            userId,
+            totalAmount: finalAmountINR,
+            subtotalAmount: subtotalAmount,
+            shippingCost: shippingCost,
+            taxAmount: taxAmount,
+            taxRate: taxRate,
+            currency: displayCurrency,
+            baseCurrency: 'USD',
+            exchangeRate: exchangeRate,
+            originalAmount: finalAmountUSD,
+            paymentStatus: "SUCCEEDED",
+            fulfillmentStatus: "PLACED", 
+            shippingAddress: shippingAddress,
+            orderImage: orderImage,
+            orderNotes: orderNotes,
+            couponCode: couponCode,
+            discountAmount: discountAmount,
+            razorpayPaymentId: razorpayPaymentId,
+            razorpayOrderId: razorpayOrderId,
+            paidAt: new Date(),
+            items: {
+              create: items.map((item, index) => {
+                // 🔥 VALIDATE REQUIRED FIELDS
+                if (!item.productId) {
+                  throw new Error(`Item ${index} missing productId`);
+                }
+                if (!item.quantity || item.quantity < 1) {
+                  throw new Error(`Item ${index} has invalid quantity: ${item.quantity}`);
+                }
+
+                return {
                   productId: item.productId,
                   quantity: item.quantity,
-                  price: item.price,
-                  printifyVariantId: item.printifyVariantId,
-                  printifyBlueprintId: item.printifyBlueprintId,
-                  printifyPrintProviderId: item.printifyPrintProviderId,
+                  price: item.price || 0,
+                  printifyVariantId: item.printifyVariantId?.toString() || null,
+                  printifyBlueprintId: item.printifyBlueprintId || null,
+                  printifyPrintProviderId: item.printifyPrintProviderId || null,
                   size: item.size || null,
                   color: item.color || null,
                   phoneModel: item.phoneModel || null,
@@ -109,50 +136,51 @@ async createOrderFromPayment(userId, tempOrderData, razorpayPaymentId, razorpayO
                   customOption1: item.customOption1 || null,
                   customOption2: item.customOption2 || null,
                   variantTitle: item.variantTitle || null,
-                })),
-              },
+                };
+              }),
             },
-            include: {
-              items: {
-                include: {
-                  product: true
-                }
+          },
+          include: {
+            items: {
+              include: {
+                product: true
               }
             }
-          });
-
-
-          // 🔥 STEP 3: CREATE SHIPPING RECORD
-          await tx.orderShipping.create({
-            data: {
-              orderId: newOrder.id,
-              shippingCost: shippingCost,
-              status: "PENDING",
-            },
-          });
-
-          return newOrder;
-        }, {
-          maxWait: 10000,
-          timeout: 15000,
+          }
         });
 
-        // 🔥 SUCCESS - BREAK OUT OF RETRY LOOP
-        break;
+        console.log('✅ Order created:', newOrder.id);
 
-      } catch (transactionError) {
-        attempts++;
-        console.error(`❌ Order creation attempt ${attempts} failed:`, transactionError.message);
+        // 🔥 CREATE SHIPPING RECORD
+        await tx.orderShipping.create({
+          data: {
+            orderId: newOrder.id,
+            shippingCost: shippingCost,
+            status: "PENDING",
+          },
+        });
 
-        // 🔥 SPECIFIC ERROR HANDLING
-        if (transactionError.message.includes('Unique constraint') && 
-            transactionError.message.includes('razorpay_payment_id')) {
-          
-          // Payment already processed - find existing order
+        console.log('✅ Shipping record created for order:', newOrder.id);
+
+        return newOrder;
+      }, {
+        maxWait: 10000,
+        timeout: 15000,
+      });
+
+      console.log('🎯 Order creation transaction completed:', order.id);
+
+    } catch (transactionError) {
+      attempts++;
+      console.error(`❌ Order creation attempt ${attempts} failed:`, transactionError.message);
+
+      // 🔥 SPECIFIC ERROR HANDLING
+      if (transactionError.message.includes('Unique constraint')) {
+        if (transactionError.message.includes('razorpay_payment_id')) {
+          // Duplicate payment - try to find existing order
           const existingOrder = await prisma.order.findFirst({
             where: {
-              razorpayPaymentId: razorpayPaymentId,
-              paymentStatus: "SUCCEEDED"
+              razorpayPaymentId: razorpayPaymentId
             },
             include: {
               items: {
@@ -164,113 +192,112 @@ async createOrderFromPayment(userId, tempOrderData, razorpayPaymentId, razorpayO
           });
 
           if (existingOrder) {
+            console.log('✅ Found existing order for duplicate payment:', existingOrder.id);
             order = existingOrder;
             break;
           }
-        }
-
-        if (transactionError.message.includes('Unique constraint') && 
-            transactionError.message.includes('id')) {
+        } else if (transactionError.message.includes('id')) {
           // Auto-increment ID conflict - wait and retry
-          await new Promise(resolve => setTimeout(resolve, 1000));
-        } else {
-          // Other errors - throw immediately
-          throw transactionError;
-        }
-
-        if (attempts >= maxAttempts) {
-          throw new Error(`Order creation failed after ${maxAttempts} attempts: ${transactionError.message}`);
-        }
-      }
-    }
-
-    // 🔥 VALIDATE ORDER CREATION
-    if (!order || !order.id) {
-      throw new Error("Order creation failed - no order returned after retries");
-    }
-
-
-    // 🔥 STEP 4: FETCH COMPLETE ORDER
-    const completeOrder = await prisma.order.findUnique({
-      where: { id: order.id },
-      include: {
-        user: {
-          select: {
-            id: true,
-            email: true,
-            name: true
+          console.log('🔄 Auto-increment ID conflict, retrying...');
+          if (attempts < maxAttempts) {
+            await new Promise(resolve => setTimeout(resolve, 500));
+            continue; // Retry
           }
-        },
-        items: { 
-          include: { 
-            product: true 
-          } 
-        },
-        shipping: true
-      },
-    });
-
-    if (!completeOrder) {
-      throw new Error(`Failed to fetch created order ${order.id}`);
-    }
-
-    // 🔥 STEP 5: COUPON USAGE (NON-BLOCKING)
-    if (couponCode && discountAmount > 0) {
-      try {
-        const coupon = await prisma.coupon.findUnique({
-          where: { code: couponCode }
-        });
-        
-        if (coupon) {
-          await prisma.$transaction(async (tx) => {
-            await tx.couponUsage.create({
-              data: {
-                couponId: coupon.id,
-                userId: userId,
-                orderId: order.id,
-                discountAmount: discountAmount
-              }
-            });
-
-            await tx.coupon.update({
-              where: { id: coupon.id },
-              data: { 
-                usedCount: { increment: 1 }
-              }
-            });
-          });
         }
-      } catch (couponError) {
-        console.error('❌ Failed to record coupon usage:', couponError);
+      }
+
+      // 🔥 OTHER ERRORS - THROW AFTER MAX ATTEMPTS
+      if (attempts >= maxAttempts) {
+        console.error('❌ Order creation failed after all attempts:', transactionError);
+        throw new Error(`Order creation failed: ${transactionError.message}`);
       }
     }
+  }
 
-    // 🔥 STEP 6: ASYNC OPERATIONS (DON'T BLOCK)
+  // 🔥 VALIDATE FINAL ORDER
+  if (!order || !order.id) {
+    throw new Error("Order creation failed - no order returned after retries");
+  }
+
+  console.log('✅ Final order validated:', order.id);
+
+  // 🔥 STEP 3: FETCH COMPLETE ORDER
+  const completeOrder = await prisma.order.findUnique({
+    where: { id: order.id },
+    include: {
+      user: {
+        select: {
+          id: true,
+          email: true,
+          name: true
+        }
+      },
+      items: { 
+        include: { 
+          product: true 
+        } 
+      },
+      shipping: true
+    },
+  });
+
+  if (!completeOrder) {
+    throw new Error(`Failed to fetch created order ${order.id}`);
+  }
+
+  console.log('✅ Complete order fetched:', completeOrder.id);
+
+  // 🔥 STEP 4: COUPON USAGE (NON-BLOCKING)
+  if (tempOrderData.couponCode && tempOrderData.discountAmount > 0) {
     try {
-      this.forwardOrderToPrintify(completeOrder.id).catch(error => {
-        console.error('❌ Printify forwarding failed:', error);
-      });
-
-      this.sendOrderConfirmationOnly(completeOrder).catch(error => {
-        console.error('❌ Email sending failed:', error);
+      const coupon = await prisma.coupon.findUnique({
+        where: { code: tempOrderData.couponCode }
       });
       
-    } catch (asyncError) {
-      console.error('❌ Async operations failed:', asyncError);
+      if (coupon) {
+        await prisma.$transaction(async (tx) => {
+          await tx.couponUsage.create({
+            data: {
+              couponId: coupon.id,
+              userId: userId,
+              orderId: order.id,
+              discountAmount: tempOrderData.discountAmount
+            }
+          });
+
+          await tx.coupon.update({
+            where: { id: coupon.id },
+            data: { 
+              usedCount: { increment: 1 }
+            }
+          });
+        });
+        console.log('✅ Coupon usage recorded for order:', order.id);
+      }
+    } catch (couponError) {
+      console.error('❌ Failed to record coupon usage:', couponError);
+      // Don't fail the order for coupon errors
     }
-
-    return completeOrder;
-
-  } catch (error) {
-    console.error('❌ Order creation from payment failed:', {
-      error: error.message,
-      stack: error.stack,
-      userId: userId,
-      razorpayPaymentId: razorpayPaymentId,
-      razorpayOrderId: razorpayOrderId
-    });
-    throw error;
   }
+
+  // 🔥 STEP 5: ASYNC OPERATIONS (DON'T BLOCK)
+  try {
+    // Printify forwarding
+    this.forwardOrderToPrintify(completeOrder.id).catch(error => {
+      console.error('❌ Printify forwarding failed:', error);
+    });
+
+    // Email sending
+    this.sendOrderConfirmationOnly(completeOrder).catch(error => {
+      console.error('❌ Email sending failed:', error);
+    });
+    
+  } catch (asyncError) {
+    console.error('❌ Async operations failed:', asyncError);
+  }
+
+  console.log('🎉 Order creation completed successfully:', completeOrder.id);
+  return completeOrder;
 }
 
 
